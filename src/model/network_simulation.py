@@ -249,7 +249,7 @@ def main():
     earth_radius = 6371.0
 
     # Orchestration only: generation and simulation work live in their own modules.
-    satellites = generate_satellites(number=20, seed=62)
+    satellites = generate_satellites(number=20, seed=42)
     network = Network(
         satellites,
         earth_radius=earth_radius,

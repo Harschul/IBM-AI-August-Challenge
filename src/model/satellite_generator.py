@@ -1,7 +1,8 @@
 """Random Satellite factory.
 
 Generation belongs here so callers receive fully configured Satellite domain
-objects without duplicating setup logic.
+objects without duplicating setup logic. Each satellite receives independently
+randomized orbital phase, inclination, RAAN, radius, and angular velocity.
 """
 
 from __future__ import annotations
@@ -19,14 +20,22 @@ def generate_satellites(
     number=50,
     radius=7000,
     radius_fluctuation=100,
-    angular_velocity=(0.001, 0.0001),
-    velocity_fluctuation=(0.0001, 0.00001),
+    angular_velocity=0.001,
+    velocity_fluctuation=0.0001,
     connection_range=2000,
     seed=None,
 ):
+    """Generate randomized satellites for the circular-orbit model.
+
+    ``angular_velocity`` is the base orbital phase rate in rad/s and
+    ``velocity_fluctuation`` is the +/- random perturbation applied separately
+    to every generated satellite.
+    """
     number = int(number)
     radius = float(radius)
     radius_fluctuation = float(radius_fluctuation)
+    angular_velocity = float(angular_velocity)
+    velocity_fluctuation = float(velocity_fluctuation)
     connection_range = float(connection_range)
 
     if number < 1:
@@ -37,36 +46,44 @@ def generate_satellites(
         raise ValueError("radius_fluctuation cannot be negative")
     if radius - radius_fluctuation <= 0:
         raise ValueError("radius_fluctuation can produce a non-positive radius")
+    if not np.isfinite(angular_velocity):
+        raise ValueError("angular_velocity must be finite")
+    if velocity_fluctuation < 0:
+        raise ValueError("velocity_fluctuation cannot be negative")
     if connection_range < 0:
         raise ValueError("connection_range cannot be negative")
-
-    angular_velocity = np.asarray(angular_velocity, dtype=float)
-    velocity_fluctuation = np.asarray(velocity_fluctuation, dtype=float)
-    if angular_velocity.shape != (2,) or velocity_fluctuation.shape != (2,):
-        raise ValueError(
-            "angular_velocity and velocity_fluctuation must each contain two values"
-        )
-    if np.any(velocity_fluctuation < 0):
-        raise ValueError("velocity_fluctuation values cannot be negative")
 
     rng = np.random.default_rng(seed)
     satellites = []
 
     LOGGER.info(
-        "Generating %d satellites with seed=%s, base_radius=%.1f km, range=%.1f km",
+        "Generating %d satellites with seed=%s, base_radius=%.1f km, "
+        "omega=%.8f +/- %.8f rad/s, range=%.1f km",
         number,
         seed,
         radius,
+        angular_velocity,
+        velocity_fluctuation,
         connection_range,
     )
 
     for i in range(number):
-        longitude = rng.uniform(0.0, 2.0 * np.pi)
+        # Where the satellite starts around its own circular orbit.
+        phase = rng.uniform(0.0, 2.0 * np.pi)
+
+        # Tilt of the orbital plane relative to Earth's equatorial plane.
         inclination = rng.uniform(-np.pi / 2.0, np.pi / 2.0)
+
+        # Rotation of the orbital plane around Earth's z-axis. Randomizing RAAN
+        # is the key fix for the old shared-x-axis crossing problem.
+        raan = rng.uniform(0.0, 2.0 * np.pi)
+
         satellite_radius = radius + rng.uniform(
             -radius_fluctuation,
             radius_fluctuation,
         )
+
+        # Fresh random draw for every satellite, so each receives its own speed.
         satellite_velocity = angular_velocity + rng.uniform(
             -velocity_fluctuation,
             velocity_fluctuation,
@@ -75,20 +92,23 @@ def generate_satellites(
         satellite = Satellite(
             name=f"Satellite {i}",
             radius=satellite_radius,
-            longitude=longitude,
+            phase=phase,
             inclination=inclination,
+            raan=raan,
             angular_velocity=satellite_velocity,
             connection_range=connection_range,
         )
         satellites.append(satellite)
 
         LOGGER.debug(
-            "Generated %s: radius=%.3f, lon=%.6f, inc=%.6f, omega=%s",
+            "Generated %s: radius=%.3f km, phase=%.6f, inc=%.6f, "
+            "raan=%.6f, omega=%.8f rad/s",
             satellite.name(),
             satellite.radius(),
-            satellite.longitude(),
+            satellite.phase(),
             satellite.inclination(),
-            np.array2string(satellite.angular_velocity(), precision=8),
+            satellite.raan(),
+            satellite.angular_velocity(),
         )
 
     LOGGER.info("Generated %d satellites successfully", len(satellites))
