@@ -22,7 +22,7 @@ def generate_satellites(
     radius_fluctuation=100,
     angular_velocity=0.001,
     velocity_fluctuation=0.0001,
-    connection_range=2000,
+    connection_range=5000,
     seed=None,
 ):
     """Generate randomized satellites for the circular-orbit model.
