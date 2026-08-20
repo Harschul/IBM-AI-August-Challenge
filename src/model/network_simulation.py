@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
 from matplotlib.collections import LineCollection
-
 from network import Network
 from satellite_generator import generate_satellites
 

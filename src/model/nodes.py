@@ -93,6 +93,10 @@ class Satellite:
     def phase(self):
         return self._phase
 
+    def initial_phase(self):
+        """Initial orbital phase used whenever reset() is called."""
+        return self._initial_phase
+
     def longitude(self):
         """Backward-compatible alias for phase()."""
         return self._phase
