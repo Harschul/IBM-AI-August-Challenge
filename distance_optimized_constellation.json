@@ -1,0 +1,275 @@
+{
+  "format": "satellite-network-constellation-v1",
+  "satellites": [
+    {
+      "name": "Satellite 0",
+      "radius": 7039.473605811872,
+      "phase": 2.722091076809091,
+      "inclination": 0.5293574056712845,
+      "raan": 6.261121575461033,
+      "angular_velocity": 0.0009188354695775299,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 1",
+      "radius": 6925.622726535109,
+      "phase": 4.664038165237068,
+      "inclination": 1.135874601275021,
+      "raan": 1.85927005221979,
+      "angular_velocity": 0.0009900771875791135,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 2",
+      "radius": 7064.552322654166,
+      "phase": 4.433673901101825,
+      "inclination": 0.7832179013835603,
+      "raan": 0.6303396058192408,
+      "angular_velocity": 0.0009886828397654662,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 3",
+      "radius": 7065.526234398516,
+      "phase": 3.9515300966627374,
+      "inclination": 1.1204059304010583,
+      "raan": 4.595048904884301,
+      "angular_velocity": 0.001026332879824413,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 4",
+      "radius": 7078.624224264439,
+      "phase": 4.601653844253564,
+      "inclination": -0.7393420631142504,
+      "raan": 0.5838257553135344,
+      "angular_velocity": 0.0010556766994147524,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 5",
+      "radius": 6930.857898413509,
+      "phase": 4.691622876387024,
+      "inclination": -1.036077022442832,
+      "raan": 4.415446185779593,
+      "angular_velocity": 0.0010366097906484909,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 6",
+      "radius": 6974.091941206973,
+      "phase": 5.173363939986032,
+      "inclination": 1.0505852608700559,
+      "raan": 3.2775613877483107,
+      "angular_velocity": 0.0009939111622551617,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 7",
+      "radius": 6945.381869810177,
+      "phase": 3.1342543357858528,
+      "inclination": -0.15917753294677506,
+      "raan": 0.2745383182951433,
+      "angular_velocity": 0.001033962798936502,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 8",
+      "radius": 6962.473328276408,
+      "phase": 3.4869184815894347,
+      "inclination": -0.45870229667949464,
+      "raan": 0.27014794946926246,
+      "angular_velocity": 0.0010664519602790403,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 9",
+      "radius": 7036.499100794995,
+      "phase": 5.23759196426262,
+      "inclination": 0.37030936381922025,
+      "raan": 4.1612903459766635,
+      "angular_velocity": 0.000927950496721862,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 10",
+      "radius": 7032.970171318407,
+      "phase": 1.5692318329034494,
+      "inclination": -0.9667316242916927,
+      "raan": 1.8370397098804319,
+      "angular_velocity": 0.001041033075725267,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 11",
+      "radius": 6927.959399625532,
+      "phase": 4.039750870945588,
+      "inclination": -0.11783038985319523,
+      "raan": 4.702681591904653,
+      "angular_velocity": 0.0009229060147071947,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 12",
+      "radius": 7052.999771483205,
+      "phase": 3.076115155692164,
+      "inclination": -0.4804645056634974,
+      "raan": 1.183668673174073,
+      "angular_velocity": 0.0010269436640001181,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 13",
+      "radius": 6906.163566913588,
+      "phase": 4.577995290287766,
+      "inclination": 0.7469151548615678,
+      "raan": 5.658992608848942,
+      "angular_velocity": 0.0009873434778464726,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 14",
+      "radius": 6946.787897173068,
+      "phase": 4.569154443546246,
+      "inclination": 1.0347952242073004,
+      "raan": 1.7156236885548453,
+      "angular_velocity": 0.0009116605483378132,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 15",
+      "radius": 7011.406430468256,
+      "phase": 4.523284898051848,
+      "inclination": -0.960727245096766,
+      "raan": 0.007298406560654502,
+      "angular_velocity": 0.0010567796418212826,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 16",
+      "radius": 6933.394583981541,
+      "phase": 2.217131406921582,
+      "inclination": -0.9426999280541795,
+      "raan": 0.1948750423100445,
+      "angular_velocity": 0.0009045424146267721,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 17",
+      "radius": 6932.25435580672,
+      "phase": 3.9378982328162144,
+      "inclination": 1.0069918304844607,
+      "raan": 4.027100695478314,
+      "angular_velocity": 0.0010002089550206726,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 18",
+      "radius": 6976.204245219296,
+      "phase": 5.351458143693839,
+      "inclination": -0.7896586604707448,
+      "raan": 3.9000844505661085,
+      "angular_velocity": 0.0009603024178295753,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 19",
+      "radius": 6923.601180424103,
+      "phase": 3.6772114730094194,
+      "inclination": 0.48636268063316995,
+      "raan": 3.482951485465316,
+      "angular_velocity": 0.001092379532909903,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 20",
+      "radius": 7093.835275469545,
+      "phase": 4.08566417454432,
+      "inclination": 0.29168603492640593,
+      "raan": 5.498919960739636,
+      "angular_velocity": 0.001055750180793159,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 21",
+      "radius": 6919.2781924307,
+      "phase": 3.9630596147090715,
+      "inclination": -0.036716296635620725,
+      "raan": 1.4410250098566058,
+      "angular_velocity": 0.0010805204793087684,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 22",
+      "radius": 7015.843913788379,
+      "phase": 0.6884786481005385,
+      "inclination": -1.2683634344052328,
+      "raan": 3.6840862594837542,
+      "angular_velocity": 0.0009353545565878463,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 23",
+      "radius": 6986.418607955021,
+      "phase": 1.769416407705731,
+      "inclination": 0.6592558218849993,
+      "raan": 2.202692709319736,
+      "angular_velocity": 0.0010254617681404886,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 24",
+      "radius": 6983.161480434122,
+      "phase": 0.9644500350326455,
+      "inclination": 0.9537611045435245,
+      "raan": 3.4243631165027724,
+      "angular_velocity": 0.0009083228347723785,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 25",
+      "radius": 6920.68059354451,
+      "phase": 5.011814703109114,
+      "inclination": 0.06470958550879186,
+      "raan": 2.0274139578042982,
+      "angular_velocity": 0.0010175289144355424,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 26",
+      "radius": 6969.373960906967,
+      "phase": 2.5521191904479372,
+      "inclination": 1.4975035502624712,
+      "raan": 3.2790106954823712,
+      "angular_velocity": 0.0010181830982962834,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 27",
+      "radius": 7056.547045450057,
+      "phase": 4.185545110208043,
+      "inclination": -0.4367138218616489,
+      "raan": 3.3630416897556548,
+      "angular_velocity": 0.0009165459999844877,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 28",
+      "radius": 7014.345610475215,
+      "phase": 4.882881407420708,
+      "inclination": 1.215593200782005,
+      "raan": 0.10806099729594631,
+      "angular_velocity": 0.0009946978802113909,
+      "connection_range": 5000.0
+    },
+    {
+      "name": "Satellite 29",
+      "radius": 6987.78229206101,
+      "phase": 5.345099101406191,
+      "inclination": -1.1914392880578784,
+      "raan": 4.4915554114720555,
+      "angular_velocity": 0.0009043224159760661,
+      "connection_range": 5000.0
+    }
+  ]
+}

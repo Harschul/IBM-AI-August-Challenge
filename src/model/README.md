@@ -1,260 +1,163 @@
-# Satellite Network Coverage-First Optimizer
+# Satellite Network Optimizers: Coverage-First vs Distance-Only
 
-This bundle contains the complete satellite-network simulation, high-speed SciPy optimizer, Earth receiver model, scoring code, CSV diagnostics and MP4 renderer.
+This bundle contains the complete satellite-network model, the existing **coverage-first** optimizer, a new **distance-only maximin-separation** optimizer, and the renderer used to replay either result.
 
-The current optimizer implements three important improvements:
+The intended workflow is to start both optimizers from the exact same constellation, render both outputs, and keep the results separate for later comparison.
 
-1. **Worst-frame Earth coverage is optimized, not average coverage alone.** A temporary coverage hole cannot hide inside a good average.
-2. **Worst receiver distance is included as well as mean receiver distance.** A badly served Earth location can no longer disappear inside a strong average.
-3. **Full sampled Earth coverage is treated as a feasibility requirement.** Incomplete candidates remain below `0.5` fitness. Candidates whose worst sampled frame reaches 100% coverage enter the upper half of the score and are then ranked by satellite-link and receiver-distance quality.
+**No new code in this bundle automatically decides which optimizer is better at delivering data.** There is no new end-to-end data routing, packet queue, storage, latency, throughput, or receiver-delivery comparison layer.
 
-The renderer is deliberately simple: the orbital view and network topology remain centred on the same vertical axis. The only live text is **EARTH COVERAGE** at the top-left and **TOTAL LINKS** at the top-right. The 100 Earth receiver dots are rendered as faint light-blue points.
+The existing simulator still computes its existing link and Earth-receiver diagnostics when a constellation is rendered. Those diagnostics are not used by the new distance-only optimizer.
 
 ---
 
-## Files
+# 1. What is new
 
-- `nodes.py` — `Satellite` domain model, circular-orbit propagation, inter-satellite distance and Earth line-of-sight checks.
-- `network.py` — readable object-oriented reference simulation and immutable per-frame snapshots.
-- `satellite_generator.py` — random constellation generation and JSON save/load.
-- `ground_receivers.py` — Fibonacci-distributed Earth receiver points and satellite-above-horizon geometry.
-- `fitness.py` — shared final normalized fitness equations used by both scoring implementations.
-- `scoring.py` — readable/reference scoring, diagnostics and CSV export.
-- `fast_scoring.py` — fully vectorized NumPy evaluator used inside SciPy optimization.
-- `optimize_constellation.py` — vectorized Differential Evolution search, benchmarking, Ctrl+C checkpointing and reference validation.
-- `network_simulation.py` — random/replay simulation, score report, CSV export and MP4 rendering.
-- `benchmark_optimizer.py` — checks that the fast and reference implementations agree and estimates optimization time on your computer.
+## 1.1 New optimizer: `optimize_separation_constellation.py`
+
+The new optimizer has exactly one search objective:
+
+```text
+maximize the minimum satellite-to-satellite distance
+observed over every unique satellite pair
+and every sampled simulation frame
+```
+
+Equivalently:
+
+```text
+score = min over frames t and pairs (i,j) of distance(satellite_i(t), satellite_j(t))
+```
+
+Differential Evolution maximizes that value.
+
+This is a **maximin** objective. A candidate is only as good as its closest satellite pair at its worst sampled instant.
+
+The distance-only optimizer does **not** use any of these quantities in its objective:
+
+- Earth coverage;
+- the 100 Earth receivers;
+- receiver-to-satellite distance;
+- satellite connection range;
+- number of active satellite links;
+- Earth line of sight;
+- route existence;
+- data storage;
+- data transfer rate;
+- latency;
+- throughput;
+- the existing coverage-first fitness score.
+
+Those items therefore cannot influence which constellation the new optimizer selects.
+
+## 1.2 Renderer labeling
+
+`network_simulation.py` now accepts:
+
+```bash
+--video-label "YOUR LABEL"
+```
+
+The label is embedded at the top center of every rendered frame. This makes it easy to distinguish the two optimizer outputs visually.
+
+---
+
+# 2. Files in this bundle
+
+- `nodes.py` — satellite state, circular-orbit propagation, distance, line-of-sight, and connection checks.
+- `network.py` — reference network simulation and immutable frame snapshots.
+- `satellite_generator.py` — seeded random constellation generation plus JSON save/load.
+- `ground_receivers.py` — Fibonacci-distributed Earth receiver points and visibility geometry.
+- `fitness.py` — shared existing coverage-first fitness equations.
+- `scoring.py` — readable/reference Earth coverage and network scoring.
+- `fast_scoring.py` — vectorized evaluator used by the existing coverage-first optimizer.
+- `optimize_constellation.py` — existing coverage-first Differential Evolution optimizer.
+- `optimize_separation_constellation.py` — **new distance-only maximin-separation optimizer**.
+- `network_simulation.py` — simulation, existing diagnostics, CSV export, and MP4 rendering; now also supports `--video-label`.
+- `benchmark_optimizer.py` — existing fast/reference coverage-first scoring benchmark.
 - `requirements.txt` — Python dependencies.
-- `BENCHMARK_RESULTS.txt` — validation and timing results from the build environment.
 
 ---
 
-# 1. Current fitness function
-
-## 1.1 Satellite link score
-
-At every frame, every possible satellite pair is considered.
-
-For a valid satellite-to-satellite link:
-
-```text
-link contribution = actual link distance / pair connection range
-```
-
-A disconnected pair contributes `0`.
-
-The sum is divided by the total number of possible satellite pairs:
-
-```text
-0 <= link_score <= 1
-```
-
-This automatically rewards both:
-
-- more simultaneous valid links;
-- longer valid links.
-
-For 30 satellites there are:
-
-```text
-30 * 29 / 2 = 435 possible links
-```
-
----
-
-## 1.2 Earth receivers
-
-By default, `100` virtual receiver points are distributed approximately evenly across Earth using a Fibonacci sphere.
-
-At every frame, every receiver:
-
-1. checks which satellites are above its local horizon / minimum elevation angle;
-2. finds the nearest visible satellite;
-3. converts that distance to a normalized penalty using `ground_distance_scale`;
-4. receives penalty `1` if it has no visible satellite.
-
-For a covered receiver:
-
-```text
-receiver penalty = clip(nearest satellite distance / ground_distance_scale, 0, 1)
-```
-
-Default:
-
-```text
-ground_distance_scale = 5000 km
-```
-
----
-
-## 1.3 Mean + worst receiver distance
-
-The optimizer no longer uses only the mean receiver penalty.
-
-It calculates:
-
-```text
-mean_receiver_penalty
-worst_receiver_penalty
-```
-
-and blends them:
-
-```text
-receiver_penalty =
-    (1 - worst_distance_weight) * mean_receiver_penalty
-    + worst_distance_weight * worst_receiver_penalty
-```
-
-Default:
-
-```text
-worst_distance_weight = 0.5
-```
-
-so mean and worst receiver distance receive equal weight.
-
-If any sampled receiver is uncovered at any sampled frame, its normalized penalty is `1`, so the global worst receiver penalty is also `1`.
-
----
-
-## 1.4 Link-distance minus receiver-distance quality
-
-Once the mean/worst receiver penalty has been combined, the normalized network quality is:
-
-```text
-quality = (1 + average_link_score - blended_receiver_penalty) / 2
-```
-
-Therefore:
-
-```text
-0 <= quality <= 1
-```
-
-This preserves the original design idea:
-
-```text
-maximize satellite link quality
--
-receiver-to-satellite distance
-```
-
-without mixing raw kilometre totals with unrelated scales.
-
----
-
-## 1.5 Worst-frame coverage comes first
-
-Coverage is deliberately **not averaged away** for the final feasibility decision.
-
-The optimizer calculates:
-
-```text
-worst_coverage = minimum Earth coverage over every sampled frame
-```
-
-If worst-frame coverage is incomplete:
-
-```text
-fitness = 0.5 * worst_coverage + tiny quality tie-break
-```
-
-The tie-break is deliberately smaller than the value of covering one additional receiver, so a lower-coverage candidate cannot beat a higher-coverage candidate merely by having better satellite links.
-
-If worst-frame coverage reaches 100%:
-
-```text
-fitness = 0.5 + 0.5 * quality
-```
-
-This creates two regions:
-
-```text
-0.0 <= fitness < 0.5   -> incomplete sampled Earth coverage
-0.5 <= fitness <= 1.0  -> full sampled Earth coverage
-```
-
-So the optimizer behaves approximately lexicographically:
-
-```text
-FIRST: maximize worst-frame Earth coverage to 100%
-THEN : maximize long/many satellite links while minimizing mean + worst ground distance
-```
-
-This is much stronger than the previous `coverage ** 10` soft penalty.
-
----
-
-# 2. Installation
+# 3. Installation
 
 Open a terminal in this folder.
 
-Install the Python dependencies:
+Install Python dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-The required Python packages are NumPy, SciPy and Matplotlib.
+The Python requirements are:
 
-FFmpeg is required only for MP4 rendering. Check whether it is available with:
+```text
+NumPy
+Matplotlib
+SciPy
+```
+
+MP4 rendering also requires FFmpeg. Check it with:
 
 ```bash
 ffmpeg -version
 ```
 
-Optimization and numerical validation still work without FFmpeg.
+If FFmpeg is missing, optimization and non-video simulation still work. Rendering MP4 files does not.
 
 ---
 
-# 3. Complete operating pipeline
+# 4. Recommended controlled workflow
 
-This is the recommended full before/after workflow.
+Use one saved baseline for both optimizers. This ensures both searches begin from the same satellite radii, angular velocities, connection ranges, and initial random constellation.
 
-## Step A — create and render a random baseline
+## Step A — create the shared baseline
 
 Run:
 
 ```bash
-python network_simulation.py --save-constellation random_baseline.json --output random_baseline.mp4 --metrics-csv random_baseline_metrics.csv
+python network_simulation.py \
+  --save-constellation shared_baseline.json \
+  --output VIDEO_0_shared_baseline.mp4 \
+  --metrics-csv shared_baseline_metrics.csv \
+  --video-label "0 - SHARED RANDOM BASELINE"
 ```
 
-This will:
-
-1. generate the default 30-satellite random constellation using seed 42;
-2. save its exact initial state to `random_baseline.json`;
-3. run the readable/reference OOP simulation;
-4. evaluate satellite links and the 100 Earth receiver points;
-5. print the coverage-first score summary;
-6. write one diagnostics row per simulation frame;
-7. render `random_baseline.mp4`.
-
-The video shows only two live values:
+With the default settings this creates 30 satellites using seed 42 and saves the exact initial constellation to:
 
 ```text
-EARTH COVERAGE                            TOTAL LINKS
+shared_baseline.json
 ```
 
-The orbital and topology plots remain vertically centred and aligned.
+The MP4 is clearly labeled:
 
-If you only want numerical results and do not need the baseline video:
+```text
+0 - SHARED RANDOM BASELINE
+```
+
+If you do not need a baseline video, use:
 
 ```bash
-python network_simulation.py --save-constellation random_baseline.json --metrics-csv random_baseline_metrics.csv --no-video
+python network_simulation.py \
+  --save-constellation shared_baseline.json \
+  --metrics-csv shared_baseline_metrics.csv \
+  --no-video
 ```
 
 ---
 
-## Step B — optimize that exact baseline
+## Step B — run the existing coverage-first optimizer
 
 Run:
 
 ```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json
+python optimize_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --output coverage_optimized_constellation.json \
+  --checkpoint coverage_optimizer_checkpoint.json \
+  --metrics-csv coverage_optimized_metrics.csv
 ```
 
-By default the optimizer changes, for every satellite:
+By default it optimizes these parameters for each satellite:
 
 ```text
 phase
@@ -262,7 +165,7 @@ inclination
 RAAN
 ```
 
-These remain fixed from the baseline:
+It keeps these baseline values fixed unless you explicitly change the optimized parameter list:
 
 ```text
 radius
@@ -270,260 +173,444 @@ angular velocity
 connection range
 ```
 
-Changing phase, inclination and RAAN changes the initial 3D satellite positions and orbital-plane orientations while keeping the circular-orbit model intact.
+The coverage-first optimizer prioritizes worst-frame sampled Earth coverage and then its existing link/receiver-distance quality function.
 
-Default search configuration:
-
-```text
-30 satellites
-90 optimization variables
-180 sampled simulation frames
-100 Earth receivers
-10 Differential Evolution generations
-popsize = 5
-```
-
-The optimizer writes:
+Its primary saved constellation is:
 
 ```text
-optimized_constellation.json
-optimizer_checkpoint.json
-optimized_constellation_metrics.csv
+coverage_optimized_constellation.json
 ```
-
-Before the search starts, it benchmarks the vectorized evaluator on your own machine and prints an estimated wall time.
 
 ---
 
-## Step C — render the optimized result
+## Step C — run the new distance-only optimizer
+
+Use the same baseline:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --output distance_optimized_constellation.json \
+  --checkpoint distance_optimizer_checkpoint.json
+```
+
+By default it optimizes the same three orbital parameters:
+
+```text
+phase
+inclination
+RAAN
+```
+
+and leaves these baseline values fixed:
+
+```text
+radius
+angular velocity
+connection range
+```
+
+Its optimization score is only:
+
+```text
+minimum pairwise satellite distance across all sampled frames
+```
+
+The 100 Earth receiver locations are not generated or evaluated inside this optimizer.
+
+The primary output is:
+
+```text
+distance_optimized_constellation.json
+```
+
+---
+
+## Step D — render the coverage-first result
 
 Run:
 
 ```bash
-python network_simulation.py --constellation optimized_constellation.json --output optimized_constellation.mp4 --metrics-csv optimized_render_metrics.csv
+python network_simulation.py \
+  --constellation coverage_optimized_constellation.json \
+  --output VIDEO_A_coverage_first.mp4 \
+  --metrics-csv VIDEO_A_coverage_first_metrics.csv \
+  --video-label "A - COVERAGE-FIRST OPTIMIZER"
 ```
 
-You can now compare:
+The video itself is labeled:
 
 ```text
-random_baseline.mp4
-random_baseline_metrics.csv
-
-vs.
-
-optimized_constellation.mp4
-optimized_render_metrics.csv
+A - COVERAGE-FIRST OPTIMIZER
 ```
 
 ---
 
-## Step D — high-resolution Earth coverage validation
+## Step E — render the distance-only result
 
-The optimizer intentionally uses only 100 Earth points to stay fast. A solution with 100% coverage on those 100 points is **100% sampled coverage**, not a mathematical proof of continuous global coverage.
-
-Validate the winner using far more points:
+Run:
 
 ```bash
-python network_simulation.py --constellation optimized_constellation.json --ground-points 5000 --no-video --metrics-csv coverage_validation_5000.csv
+python network_simulation.py \
+  --constellation distance_optimized_constellation.json \
+  --output VIDEO_B_distance_only.mp4 \
+  --metrics-csv VIDEO_B_distance_only_metrics.csv \
+  --video-label "B - DISTANCE-ONLY MAXIMIN SEPARATION"
 ```
 
-For a stricter test:
-
-```bash
-python network_simulation.py --constellation optimized_constellation.json --ground-points 20000 --no-video --metrics-csv coverage_validation_20000.csv
-```
-
-The most important console value is:
+The video itself is labeled:
 
 ```text
-Worst-frame Earth coverage
+B - DISTANCE-ONLY MAXIMIN SEPARATION
 ```
 
-For a strong sampled global-coverage result, this should remain:
-
-```text
-100.00%
-```
-
-at the higher receiver count as well.
+The renderer will still display its existing Earth coverage and total-link indicators. Those values are observations from the replay; they were **not** part of the distance-only optimization objective.
 
 ---
 
-# 4. Copy/paste normal workflow
+# 5. Copy/paste full workflow
+
+Linux/macOS shell form:
 
 ```bash
 python -m pip install -r requirements.txt
-python network_simulation.py --save-constellation random_baseline.json --output random_baseline.mp4 --metrics-csv random_baseline_metrics.csv
-python optimize_constellation.py --baseline-constellation random_baseline.json
-python network_simulation.py --constellation optimized_constellation.json --output optimized_constellation.mp4 --metrics-csv optimized_render_metrics.csv
-python network_simulation.py --constellation optimized_constellation.json --ground-points 5000 --no-video --metrics-csv coverage_validation_5000.csv
+
+python network_simulation.py --save-constellation shared_baseline.json --output VIDEO_0_shared_baseline.mp4 --metrics-csv shared_baseline_metrics.csv --video-label "0 - SHARED RANDOM BASELINE"
+
+python optimize_constellation.py --baseline-constellation shared_baseline.json --output coverage_optimized_constellation.json --checkpoint coverage_optimizer_checkpoint.json --metrics-csv coverage_optimized_metrics.csv
+
+python optimize_separation_constellation.py --baseline-constellation shared_baseline.json --output distance_optimized_constellation.json --checkpoint distance_optimizer_checkpoint.json
+
+python network_simulation.py --constellation coverage_optimized_constellation.json --output VIDEO_A_coverage_first.mp4 --metrics-csv VIDEO_A_coverage_first_metrics.csv --video-label "A - COVERAGE-FIRST OPTIMIZER"
+
+python network_simulation.py --constellation distance_optimized_constellation.json --output VIDEO_B_distance_only.mp4 --metrics-csv VIDEO_B_distance_only_metrics.csv --video-label "B - DISTANCE-ONLY MAXIMIN SEPARATION"
 ```
 
----
-
-# 5. Benchmark before a long optimization
-
-Run:
-
-```bash
-python benchmark_optimizer.py
-```
-
-It performs two checks:
-
-1. evaluates the same constellation with the vectorized optimizer model and the readable OOP/reference model;
-2. measures candidate evaluations per second and estimates the default Differential Evolution runtime.
-
-The fast and reference scores should agree to floating-point precision.
-
----
-
-# 6. Optimization controls
-
-## Very quick test
-
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --frames 60 --maxiter 2 --popsize 3
-```
-
-Use this to verify the workflow before a larger search.
-
-## Default search
-
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json
-```
-
-## Deeper search
-
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --maxiter 30 --popsize 6
-```
-
-The approximate maximum number of candidate constellations is:
+Expected key outputs:
 
 ```text
-(maxiter + 1) * popsize * number_of_variables
+shared_baseline.json
+coverage_optimized_constellation.json
+distance_optimized_constellation.json
+
+VIDEO_0_shared_baseline.mp4
+VIDEO_A_coverage_first.mp4
+VIDEO_B_distance_only.mp4
 ```
 
-For 30 satellites with phase/inclination/RAAN:
+---
+
+# 6. Distance-only optimizer details
+
+## 6.1 Default settings
+
+The new script defaults to:
 
 ```text
-number_of_variables = 90
+30 satellites
+20,000 seconds simulated per candidate
+180 sampled frames per candidate
+phase + inclination + RAAN optimized
+10 Differential Evolution generations
+popsize = 5
+candidate chunk size = 8
+chunk workers = 1
 ```
 
----
-
-## Change mean-vs-worst receiver-distance importance
-
-Default equal weighting:
-
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --worst-distance-weight 0.5
-```
-
-Emphasize the worst-served ground location more strongly:
-
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --worst-distance-weight 0.75
-```
-
-A value of `1.0` ignores the mean receiver distance and optimizes the worst receiver penalty only after full sampled coverage has been reached.
-
-Use the same flag when re-scoring/rendering if you changed it during optimization:
-
-```bash
-python network_simulation.py --constellation optimized_constellation.json --worst-distance-weight 0.75
-```
-
----
-
-## Require a minimum ground elevation angle
-
-Default horizon visibility:
+For 30 satellites there are:
 
 ```text
-min elevation = 0 degrees
+30 * 29 / 2 = 435 unique satellite pairs
 ```
 
-For a stricter 10-degree minimum elevation:
+At every sampled frame the optimizer computes all 435 pair distances. The candidate score is the smallest value anywhere in that frame/pair grid.
 
-```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --min-elevation-deg 10
+## 6.2 Why the minimum is used
+
+Optimizing the average pair distance could allow two satellites to get very close as long as the other satellites stay far apart.
+
+The maximin objective prevents that averaging effect:
+
+```text
+candidate score = its single closest sampled pair encounter
 ```
 
-Render/validate with the same setting:
+Increasing the score therefore pushes up the worst sampled separation.
 
-```bash
-python network_simulation.py --constellation optimized_constellation.json --min-elevation-deg 10
+## 6.3 Diagnostics printed by the new optimizer
+
+The new optimizer reports:
+
+```text
+minimum pair distance
+mean frame minimum distance
+mean all-pair distance
+closest-approach frame
+closest-approach time
+closest satellite pair
 ```
+
+Only `minimum pair distance` is optimized. The other values are diagnostics and do not affect selection.
 
 ---
 
-## Optimize angular velocity as well
+# 7. Quick test runs
+
+These commands are useful for checking that everything launches correctly before a longer optimization.
+
+Coverage-first quick run:
 
 ```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --parameters phase inclination raan angular_velocity
+python optimize_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --frames 30 \
+  --maxiter 1 \
+  --popsize 2 \
+  --benchmark-candidates 0 \
+  --output coverage_quick.json \
+  --skip-reference-validation
 ```
 
-This increases the problem from 90 to 120 variables for 30 satellites.
+Distance-only quick run:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --frames 30 \
+  --maxiter 1 \
+  --popsize 2 \
+  --benchmark-candidates 0 \
+  --output distance_quick.json
+```
+
+These are workflow checks, not meaningful optimization runs.
 
 ---
 
-# 7. Stop and resume
+# 8. Longer distance-only searches
 
-Press:
+Default:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json
+```
+
+Deeper search:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --maxiter 30 \
+  --popsize 6
+```
+
+Increase temporal sampling:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --frames 720
+```
+
+A larger frame count makes the maximin separation objective inspect more times during the same simulation window. This can catch close approaches that a coarser sampling schedule misses.
+
+---
+
+# 9. Optimize angular velocity too
+
+The default distance-only search changes only:
+
+```text
+phase inclination raan
+```
+
+To also optimize angular velocity:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --parameters phase inclination raan angular_velocity
+```
+
+The allowed angular velocity bound matches the existing optimizer:
+
+```text
+0.0005 to 0.0015 rad/s
+```
+
+For 30 satellites this increases the number of Differential Evolution variables from 90 to 120.
+
+---
+
+# 10. Stop and resume the distance-only optimizer
+
+The default checkpoint is:
+
+```text
+distance_optimizer_checkpoint.json
+```
+
+You can stop with:
 
 ```text
 Ctrl+C
 ```
 
-The optimizer keeps the best candidate from the last completed vectorized batch and writes the best constellation found so far.
+The best candidate from the last completed vectorized batch is retained and saved.
 
-The checkpoint is normally:
+Resume with:
+
+```bash
+python optimize_separation_constellation.py \
+  --baseline-constellation shared_baseline.json \
+  --resume-checkpoint distance_optimizer_checkpoint.json
+```
+
+The checkpoint stores the optimized variable vector and its minimum-separation score in kilometres.
+
+Coverage-first and distance-only checkpoints are intentionally different formats and are not interchangeable.
+
+---
+
+# 11. Rendering options
+
+Render any saved constellation:
+
+```bash
+python network_simulation.py --constellation FILE.json --output OUTPUT.mp4
+```
+
+Add a permanent label:
+
+```bash
+python network_simulation.py \
+  --constellation FILE.json \
+  --output OUTPUT.mp4 \
+  --video-label "MY EXPERIMENT LABEL"
+```
+
+Change video duration:
+
+```bash
+python network_simulation.py --constellation FILE.json --video-seconds 60
+```
+
+Change frame rate:
+
+```bash
+python network_simulation.py --constellation FILE.json --fps 30
+```
+
+Update the existing on-video Earth-coverage/link indicators every rendered frame:
+
+```bash
+python network_simulation.py \
+  --constellation FILE.json \
+  --metrics-update-seconds 0
+```
+
+Run the simulation and export existing diagnostics without creating an MP4:
+
+```bash
+python network_simulation.py \
+  --constellation FILE.json \
+  --no-video \
+  --metrics-csv metrics.csv
+```
+
+---
+
+# 12. About the 100 Earth receivers
+
+The existing renderer/scorer uses 100 virtual Earth receiver points by default:
 
 ```text
-optimizer_checkpoint.json
+--ground-points 100
 ```
 
-Resume from it with:
+They are approximately evenly distributed with a Fibonacci sphere.
+
+The coverage-first optimizer uses those receiver samples in its objective.
+
+The new distance-only optimizer does not use them at all.
+
+When you replay either saved constellation with `network_simulation.py`, the renderer/scorer evaluates the selected constellation against the receiver set for its normal display and CSV diagnostics.
+
+You can render or inspect with more receiver points, for example:
 
 ```bash
-python optimize_constellation.py --baseline-constellation random_baseline.json --resume-checkpoint optimizer_checkpoint.json
+python network_simulation.py \
+  --constellation distance_optimized_constellation.json \
+  --ground-points 5000 \
+  --no-video \
+  --metrics-csv distance_render_5000_receivers.csv
 ```
 
-Checkpoints from the previous soft-coverage objective are accepted as starting vectors, but their old stored scores are not comparable and are recalculated using the new coverage-first objective.
+This does not retroactively change what the distance-only optimizer optimized.
 
 ---
 
-# 8. Rendering controls
+# 13. Data transmission and storage scope
 
-The normal render is:
+The satellite model currently provides physical satellite positions and pairwise connection checks based on range and Earth line of sight.
 
-```bash
-python network_simulation.py --constellation optimized_constellation.json
-```
+This bundle does **not** add a new model for:
 
-The top-line indicators update once per second of video by default.
+- generated data packets;
+- per-satellite storage capacity;
+- store-and-forward queues;
+- scheduling transmissions;
+- route selection;
+- link bandwidth;
+- receiver capacity;
+- end-to-end delivery success;
+- end-to-end delay;
+- automatic comparison of the two optimized constellations.
 
-Update them every visual frame with:
-
-```bash
-python network_simulation.py --constellation optimized_constellation.json --metrics-update-seconds 0
-```
-
-The faint light-blue dots are the virtual Earth receiver/sample locations.
+That omission is intentional for this revision. The two optimizers now produce two clearly separate constellation candidates that can be rendered and saved, but the requested future question—how effectively data originating anywhere in orbit reaches one of the Earth receivers, including store-and-forward behavior—has not been implemented here.
 
 ---
 
-# 9. Important interpretation
+# 14. Important interpretation of the distance-only result
 
-The optimizer currently addresses:
+A larger minimum inter-satellite distance is not automatically the same thing as a better communications network.
 
-- satellite-to-satellite range and Earth line of sight;
-- many/long valid satellite links;
-- nearest visible satellite distance for Earth receivers;
-- worst sampled receiver distance;
-- worst-frame sampled Earth coverage.
+Because the distance-only objective ignores connection range and routing, it may spread satellites far enough apart that some inter-satellite links disappear. It may also produce excellent geometric separation while giving poor Earth coverage.
 
-It **does not yet enforce graph-wide routing connectivity**. A constellation can have full ground coverage and many satellite links without guaranteeing that every satellite belongs to one connected communication component at every frame. If the engineering requirement is literally "a signal from any satellite can route to any point on Earth," graph connectivity/reachability should be added as a separate feasibility requirement in a future revision.
+That is expected behavior for this experiment: the optimizer is deliberately isolated to one objective so its result can later be evaluated against the coverage-first approach without contaminating the search with communication-quality terms.
+
+---
+
+# 15. Existing coverage-first benchmark
+
+The existing benchmark still checks the agreement between the vectorized coverage-first evaluator and the readable/reference scorer:
+
+```bash
+python benchmark_optimizer.py
+```
+
+It does not benchmark or compare the new distance-only constellation against the coverage-first constellation.
+
+---
+
+# 16. Suggested filenames for clean experiments
+
+Use these names consistently:
+
+```text
+Input baseline:
+  shared_baseline.json
+
+Coverage-first output:
+  coverage_optimized_constellation.json
+  coverage_optimizer_checkpoint.json
+  VIDEO_A_coverage_first.mp4
+
+Distance-only output:
+  distance_optimized_constellation.json
+  distance_optimizer_checkpoint.json
+  VIDEO_B_distance_only.mp4
+```
+
+This keeps optimizer A and optimizer B visually and operationally distinct without adding any automatic decision logic.

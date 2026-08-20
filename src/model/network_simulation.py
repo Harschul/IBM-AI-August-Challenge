@@ -108,6 +108,7 @@ def render_video(
     preset="slow",
     metrics_update_seconds=1.0,
     ground_points=None,
+    video_label=None,
 ):
     """Render immutable snapshots plus the score diagnostics for each frame."""
     snapshots = tuple(snapshots)
@@ -191,6 +192,18 @@ def render_video(
         fontweight="bold",
         color=MUTED_TEXT,
     )
+
+    if video_label:
+        fig.text(
+            0.5,
+            0.965,
+            str(video_label),
+            va="top",
+            ha="center",
+            fontsize=12,
+            fontweight="bold",
+            color=MUTED_TEXT,
+        )
 
     cols = int(np.ceil(np.sqrt(satellite_count)))
     rows = int(np.ceil(satellite_count / cols))
@@ -353,6 +366,14 @@ def parse_args():
     parser.add_argument("--output", default="satellite_network.mp4")
     parser.add_argument("--metrics-csv", default="satellite_network_metrics.csv")
     parser.add_argument(
+        "--video-label",
+        default=None,
+        help=(
+            "Optional centered label embedded in every rendered video frame, "
+            "for example 'A - COVERAGE-FIRST' or 'B - DISTANCE-ONLY'."
+        ),
+    )
+    parser.add_argument(
         "--save-constellation",
         default=None,
         help=(
@@ -462,6 +483,7 @@ def main():
             preset="slow",
             metrics_update_seconds=args.metrics_update_seconds,
             ground_points=ground_points,
+            video_label=args.video_label,
         )
 
 
