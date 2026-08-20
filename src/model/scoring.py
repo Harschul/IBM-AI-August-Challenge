@@ -1,15 +1,19 @@
-"""Normalized scoring and diagnostics for a satellite network simulation.
+"""Reference scoring for satellite links and Earth receiver access.
 
-The score deliberately rewards both goals at once:
+This module is the readable/reference implementation used for final validation,
+CSV diagnostics and rendering.  The vectorized optimizer in ``fast_scoring.py``
+uses the same shared fitness functions from ``fitness.py``.
 
-* more simultaneously valid links;
-* longer valid links.
+The final whole-constellation objective applies three important rules:
 
-For every possible satellite pair, a disconnected pair contributes 0.  A
-connected pair contributes ``distance / pair_connection_range``.  Therefore a
-single pair is always worth between 0 and 1, and the score for a snapshot is
-the mean contribution over *all possible pairs*.  The final network score is
-the mean snapshot score over the complete simulation, so it is also in [0, 1].
+1. **Worst-frame coverage matters.** A brief coverage hole cannot be hidden by
+   excellent coverage at other times.
+2. **Worst receiver distance matters as well as the mean.** The normalized mean
+   and worst receiver penalties are blended (50/50 by default).
+3. **Full sampled coverage is effectively mandatory.** Incomplete candidates
+   are confined below 0.5 fitness and ranked primarily by worst-frame coverage.
+   A candidate with 100% worst-frame coverage enters the [0.5, 1.0] range and is
+   then ranked by link-minus-receiver quality.
 """
 
 from __future__ import annotations
@@ -20,11 +24,12 @@ from pathlib import Path
 
 import numpy as np
 
+from fitness import blended_receiver_penalty, coverage_first_fitness, network_quality
+from ground_receivers import fibonacci_sphere, nearest_visible_satellite_distances
+
 
 @dataclass(frozen=True)
 class SnapshotScore:
-    """Scoring diagnostics for one immutable NetworkSnapshot."""
-
     frame: int
     time: float
     active_links: int
@@ -33,16 +38,34 @@ class SnapshotScore:
     total_link_distance: float
     mean_link_distance: float
     normalized_distance_sum: float
+    link_score: float
+    receiver_count: int
+    covered_receivers: int
+    coverage_fraction: float
+    mean_nearest_receiver_distance: float
+    max_nearest_receiver_distance: float
+    receiver_penalty: float
+    worst_receiver_penalty: float
+    blended_receiver_penalty: float
+    base_score: float
     score: float
     running_score: float
 
 
 @dataclass(frozen=True)
 class NetworkScore:
-    """Complete normalized score plus useful simulation diagnostics."""
-
     score: float
+    quality_score: float
     frame_scores: tuple[SnapshotScore, ...]
+    average_link_score: float
+    average_receiver_penalty: float
+    worst_receiver_penalty: float
+    blended_receiver_penalty: float
+    average_coverage: float
+    worst_coverage: float
+    full_coverage: bool
+    average_nearest_receiver_distance: float
+    worst_nearest_receiver_distance: float
     average_active_links: float
     maximum_active_links: int
     average_link_distance: float
@@ -50,252 +73,341 @@ class NetworkScore:
     cumulative_link_distance: float
     total_link_observations: int
     max_possible_links: int
+    receiver_count: int
+    ground_distance_scale: float
+    worst_distance_weight: float
+    coverage_tolerance: float
+    min_elevation_deg: float
 
 
-def _pair_connection_range(satellites, i: int, j: int) -> float:
-    """Return the same symmetric range limit used by Satellite.can_connect_to()."""
-    return min(
-        float(satellites[i].connection_range()),
-        float(satellites[j].connection_range()),
+def _connection_ranges(satellites) -> np.ndarray:
+    return np.fromiter(
+        (sat.connection_range() for sat in satellites),
+        dtype=np.float64,
+        count=len(satellites),
     )
 
 
-def score_snapshot(snapshot, satellites) -> tuple[float, int, float, float, float]:
-    """Score one snapshot.
-
-    Returns
-    -------
-    score:
-        Normalized score in [0, 1].
-    active_links:
-        Number of currently valid links.
-    total_link_distance:
-        Sum of physical distances of all currently valid links, in km.
-    mean_link_distance:
-        Mean physical distance of currently valid links, in km.
-    normalized_distance_sum:
-        Sum of each active link's ``distance / pair_connection_range``.
-
-    Notes
-    -----
-    A disconnected pair contributes zero automatically because it does not
-    appear in ``snapshot.connection_indices``.
-    """
-    satellite_count = len(satellites)
-    max_possible_links = satellite_count * (satellite_count - 1) // 2
-
-    if max_possible_links == 0:
-        return 0.0, 0, 0.0, 0.0, 0.0
-
+def _link_metrics(snapshot, satellites, connection_ranges):
+    n = len(satellites)
+    max_possible_links = n * (n - 1) // 2
     active_links = len(snapshot.connection_indices)
-    if active_links == 0:
-        return 0.0, 0, 0.0, 0.0, 0.0
 
-    active = np.asarray(snapshot.connection_indices, dtype=np.int32)
+    if max_possible_links == 0 or active_links == 0:
+        return 0.0, active_links, 0.0, 0.0, 0.0, max_possible_links
+
+    active = np.asarray(snapshot.connection_indices, dtype=np.intp)
     i_idx = active[:, 0]
     j_idx = active[:, 1]
+    delta = snapshot.positions[i_idx] - snapshot.positions[j_idx]
+    distances = np.linalg.norm(delta, axis=1)
+    pair_ranges = np.minimum(connection_ranges[i_idx], connection_ranges[j_idx])
 
-    deltas = snapshot.positions[i_idx] - snapshot.positions[j_idx]
-    distances = np.linalg.norm(deltas, axis=1)
-
-    pair_ranges = np.asarray(
-        [_pair_connection_range(satellites, int(i), int(j)) for i, j in active],
-        dtype=float,
+    normalized = np.divide(
+        distances,
+        pair_ranges,
+        out=np.zeros_like(distances),
+        where=pair_ranges > 0.0,
     )
+    np.clip(normalized, 0.0, 1.0, out=normalized)
 
-    # A zero-range pair can only connect at zero distance.  Define its normalized
-    # contribution as zero rather than dividing by zero.
-    normalized = np.zeros_like(distances, dtype=float)
-    valid_range = pair_ranges > 0.0
-    normalized[valid_range] = distances[valid_range] / pair_ranges[valid_range]
-
-    # Connectivity already enforces distance <= range; clip only to protect the
-    # advertised [0, 1] score from tiny floating-point overshoots.
-    normalized = np.clip(normalized, 0.0, 1.0)
-
-    normalized_distance_sum = float(np.sum(normalized))
-    total_link_distance = float(np.sum(distances))
-    mean_link_distance = float(np.mean(distances))
-    score = normalized_distance_sum / max_possible_links
-
+    normalized_sum = float(np.sum(normalized))
+    total_distance = float(np.sum(distances))
+    mean_distance = float(np.mean(distances))
+    link_score = normalized_sum / max_possible_links
     return (
-        float(np.clip(score, 0.0, 1.0)),
+        float(np.clip(link_score, 0.0, 1.0)),
         active_links,
-        total_link_distance,
-        mean_link_distance,
-        normalized_distance_sum,
+        total_distance,
+        mean_distance,
+        normalized_sum,
+        max_possible_links,
     )
 
 
-def score_network(snapshots, satellites) -> NetworkScore:
-    """Score an entire simulation and return per-frame diagnostics.
+def score_network(
+    snapshots,
+    satellites,
+    *,
+    ground_points=None,
+    ground_point_count: int = 100,
+    earth_radius: float = 6371.0,
+    ground_distance_scale: float = 5000.0,
+    worst_distance_weight: float = 0.5,
+    coverage_tolerance: float = 1e-12,
+    min_elevation_deg: float = 0.0,
+) -> NetworkScore:
+    """Score an entire reference simulation using coverage-first fitness.
 
-    The final score is the arithmetic mean of every snapshot score.  It remains
-    between 0 and 1 and is suitable for direct use as a fitness value.
+    ``ground_distance_scale`` maps receiver distance to a normalized penalty:
+    ``distance / ground_distance_scale``, clipped to [0, 1].  An uncovered
+    receiver receives a penalty of exactly 1.
+
+    ``worst_distance_weight`` controls the blend between the mean receiver
+    penalty and the single worst sampled receiver penalty.  The default 0.5 is
+    an equal mean/worst blend.
     """
     snapshots = tuple(snapshots)
     satellites = tuple(satellites)
-
     if not snapshots:
         raise ValueError("snapshots cannot be empty")
     if not satellites:
         raise ValueError("satellites cannot be empty")
+    if ground_distance_scale <= 0:
+        raise ValueError("ground_distance_scale must be positive")
+    if not 0.0 <= float(worst_distance_weight) <= 1.0:
+        raise ValueError("worst_distance_weight must be between 0 and 1")
+    if float(coverage_tolerance) < 0:
+        raise ValueError("coverage_tolerance cannot be negative")
 
+    if ground_points is None:
+        ground_points = fibonacci_sphere(ground_point_count, radius=earth_radius)
+    ground_points = np.asarray(ground_points, dtype=np.float64)
+    if ground_points.ndim != 2 or ground_points.shape[1] != 3:
+        raise ValueError("ground_points must have shape (G, 3)")
+
+    receiver_count = len(ground_points)
+    connection_ranges = _connection_ranges(satellites)
     max_possible_links = len(satellites) * (len(satellites) - 1) // 2
 
-    frame_scores: list[SnapshotScore] = []
-    score_sum = 0.0
+    rows = []
+    running_total = 0.0
     total_link_observations = 0
     cumulative_link_distance = 0.0
     maximum_active_links = 0
 
-    for count, snapshot in enumerate(snapshots, start=1):
+    for k, snapshot in enumerate(snapshots, start=1):
         (
-            frame_score,
+            link_score,
             active_links,
             total_link_distance,
             mean_link_distance,
             normalized_distance_sum,
-        ) = score_snapshot(snapshot, satellites)
+            _,
+        ) = _link_metrics(snapshot, satellites, connection_ranges)
 
-        score_sum += frame_score
-        running_score = score_sum / count
+        nearest, covered = nearest_visible_satellite_distances(
+            snapshot.positions,
+            ground_points,
+            earth_radius=earth_radius,
+            min_elevation_deg=min_elevation_deg,
+        )
+        covered_count = int(np.count_nonzero(covered))
+        coverage_fraction = covered_count / receiver_count
 
+        # Uncovered receivers stay at penalty=1.  Covered distances are scaled
+        # and clipped into [0, 1].
+        normalized_receiver = np.ones(receiver_count, dtype=np.float64)
+        if covered_count:
+            normalized_receiver[covered] = np.clip(
+                nearest[covered] / ground_distance_scale,
+                0.0,
+                1.0,
+            )
+            mean_nearest = float(np.mean(nearest[covered]))
+        else:
+            mean_nearest = float("inf")
+
+        # If even one receiver is uncovered, the true worst access distance is
+        # unbounded/unavailable rather than merely the worst of the covered set.
+        if covered_count == receiver_count:
+            max_nearest = float(np.max(nearest))
+        else:
+            max_nearest = float("inf")
+
+        receiver_penalty = float(np.mean(normalized_receiver))
+        worst_receiver_penalty = float(np.max(normalized_receiver))
+        blended_penalty = float(
+            blended_receiver_penalty(
+                receiver_penalty,
+                worst_receiver_penalty,
+                worst_distance_weight,
+            )
+        )
+        base_score = float(network_quality(link_score, blended_penalty))
+        frame_score = float(
+            coverage_first_fitness(
+                base_score,
+                coverage_fraction,
+                receiver_count,
+                coverage_tolerance,
+            )
+        )
+
+        running_total += frame_score
+        running_score = running_total / k
         total_link_observations += active_links
         cumulative_link_distance += total_link_distance
         maximum_active_links = max(maximum_active_links, active_links)
 
-        link_fraction = (
-            active_links / max_possible_links if max_possible_links else 0.0
-        )
-
-        frame_scores.append(
+        rows.append(
             SnapshotScore(
                 frame=int(snapshot.frame),
                 time=float(snapshot.time),
                 active_links=int(active_links),
                 max_possible_links=int(max_possible_links),
-                link_fraction=float(link_fraction),
+                link_fraction=(active_links / max_possible_links if max_possible_links else 0.0),
                 total_link_distance=float(total_link_distance),
                 mean_link_distance=float(mean_link_distance),
                 normalized_distance_sum=float(normalized_distance_sum),
-                score=float(frame_score),
+                link_score=float(link_score),
+                receiver_count=int(receiver_count),
+                covered_receivers=covered_count,
+                coverage_fraction=float(coverage_fraction),
+                mean_nearest_receiver_distance=mean_nearest,
+                max_nearest_receiver_distance=max_nearest,
+                receiver_penalty=receiver_penalty,
+                worst_receiver_penalty=worst_receiver_penalty,
+                blended_receiver_penalty=blended_penalty,
+                base_score=base_score,
+                score=frame_score,
                 running_score=float(running_score),
             )
         )
 
-    final_score = score_sum / len(frame_scores)
-    average_active_links = total_link_observations / len(frame_scores)
-    average_total_link_distance = cumulative_link_distance / len(frame_scores)
+    link_scores = np.array([r.link_score for r in rows], dtype=np.float64)
+    receiver_penalties = np.array([r.receiver_penalty for r in rows], dtype=np.float64)
+    worst_receiver_penalties = np.array([r.worst_receiver_penalty for r in rows], dtype=np.float64)
+    coverage = np.array([r.coverage_fraction for r in rows], dtype=np.float64)
+    active_links = np.array([r.active_links for r in rows], dtype=np.float64)
+    total_distances = np.array([r.total_link_distance for r in rows], dtype=np.float64)
 
-    # This is weighted by actual link observations rather than by frames, so
-    # frames with no links do not artificially drag the physical link length down.
-    average_link_distance = (
-        cumulative_link_distance / total_link_observations
-        if total_link_observations
-        else 0.0
+    average_link_score = float(np.mean(link_scores))
+    average_receiver_penalty = float(np.mean(receiver_penalties))
+    worst_receiver_penalty = float(np.max(worst_receiver_penalties))
+    blended_penalty = float(
+        blended_receiver_penalty(
+            average_receiver_penalty,
+            worst_receiver_penalty,
+            worst_distance_weight,
+        )
+    )
+    quality_score = float(network_quality(average_link_score, blended_penalty))
+    worst_coverage = float(np.min(coverage))
+    full_coverage = bool(worst_coverage >= 1.0 - float(coverage_tolerance))
+    final_score = float(
+        coverage_first_fitness(
+            quality_score,
+            worst_coverage,
+            receiver_count,
+            coverage_tolerance,
+        )
     )
 
+    finite_nearest = [
+        r.mean_nearest_receiver_distance
+        for r in rows
+        if np.isfinite(r.mean_nearest_receiver_distance)
+    ]
+    # Any uncovered point at any frame makes the worst receiver distance infinite.
+    if full_coverage:
+        worst_nearest = max(r.max_nearest_receiver_distance for r in rows)
+    else:
+        worst_nearest = float("inf")
+
     return NetworkScore(
-        score=float(np.clip(final_score, 0.0, 1.0)),
-        frame_scores=tuple(frame_scores),
-        average_active_links=float(average_active_links),
-        maximum_active_links=int(maximum_active_links),
-        average_link_distance=float(average_link_distance),
-        average_total_link_distance=float(average_total_link_distance),
+        score=final_score,
+        quality_score=quality_score,
+        frame_scores=tuple(rows),
+        average_link_score=average_link_score,
+        average_receiver_penalty=average_receiver_penalty,
+        worst_receiver_penalty=worst_receiver_penalty,
+        blended_receiver_penalty=blended_penalty,
+        average_coverage=float(np.mean(coverage)),
+        worst_coverage=worst_coverage,
+        full_coverage=full_coverage,
+        average_nearest_receiver_distance=(
+            float(np.mean(finite_nearest)) if finite_nearest else float("inf")
+        ),
+        worst_nearest_receiver_distance=float(worst_nearest),
+        average_active_links=float(np.mean(active_links)),
+        maximum_active_links=int(np.max(active_links)),
+        average_link_distance=(
+            cumulative_link_distance / total_link_observations
+            if total_link_observations
+            else 0.0
+        ),
+        average_total_link_distance=float(np.mean(total_distances)),
         cumulative_link_distance=float(cumulative_link_distance),
         total_link_observations=int(total_link_observations),
         max_possible_links=int(max_possible_links),
+        receiver_count=int(receiver_count),
+        ground_distance_scale=float(ground_distance_scale),
+        worst_distance_weight=float(worst_distance_weight),
+        coverage_tolerance=float(coverage_tolerance),
+        min_elevation_deg=float(min_elevation_deg),
     )
 
 
+def _distance_text(value: float) -> str:
+    return f"{value:.2f} km" if np.isfinite(value) else "uncovered"
+
+
 def print_score_summary(results: NetworkScore, satellite_count: int) -> None:
-    """Print a compact, human-readable summary of a constellation run."""
     print()
-    print("=" * 64)
-    print(" CONSTELLATION SCORE")
-    print("=" * 64)
-    print(f"Satellites                  : {satellite_count}")
-    print(f"Maximum possible links      : {results.max_possible_links}")
-    print(f"Simulation snapshots        : {len(results.frame_scores)}")
-    print("-" * 64)
-    print(f"Final normalized score      : {results.score:.6f} / 1.000000")
-    print(f"Average active links        : {results.average_active_links:.2f}")
-    print(f"Maximum active links        : {results.maximum_active_links}")
-    print(f"Average valid-link distance : {results.average_link_distance:.2f} km")
-    print(f"Avg total distance / frame  : {results.average_total_link_distance:.2f} km")
-    print(f"Cumulative sampled distance : {results.cumulative_link_distance:.2f} km")
-    print("=" * 64)
+    print("=" * 76)
+    print(" COVERAGE-FIRST CONSTELLATION SCORE")
+    print("=" * 76)
+    print(f"Satellites                         : {satellite_count}")
+    print(f"Virtual Earth receivers            : {results.receiver_count}")
+    print(f"Simulation snapshots               : {len(results.frame_scores)}")
+    print(f"Maximum possible sat links         : {results.max_possible_links}")
+    print("-" * 76)
+    print(f"FINAL FITNESS                      : {results.score:.6f} / 1.000000")
+    print(f"Coverage status                    : {'FULL' if results.full_coverage else 'INCOMPLETE'}")
+    print(f"Worst-frame Earth coverage         : {100*results.worst_coverage:.2f}%")
+    print(f"Average Earth coverage             : {100*results.average_coverage:.2f}%")
+    print("-" * 76)
+    print(f"Quality score (after coverage)     : {results.quality_score:.6f}")
+    print(f"Average satellite link score       : {results.average_link_score:.6f}")
+    print(f"Mean receiver penalty              : {results.average_receiver_penalty:.6f}")
+    print(f"Worst receiver penalty             : {results.worst_receiver_penalty:.6f}")
+    print(f"Blended receiver penalty           : {results.blended_receiver_penalty:.6f}")
+    print(f"Mean/worst receiver weight         : {1-results.worst_distance_weight:.2f} / {results.worst_distance_weight:.2f}")
+    print(f"Avg nearest visible satellite      : {_distance_text(results.average_nearest_receiver_distance)}")
+    print(f"Worst sampled receiver distance    : {_distance_text(results.worst_nearest_receiver_distance)}")
+    print("-" * 76)
+    print(f"Average active links               : {results.average_active_links:.2f}")
+    print(f"Maximum active links               : {results.maximum_active_links}")
+    print(f"Average valid-link distance        : {results.average_link_distance:.2f} km")
+    print(f"Avg total sat-link dist / frame    : {results.average_total_link_distance:.2f} km")
+    print(f"Receiver distance scale            : {results.ground_distance_scale:.1f} km")
+    print(f"Minimum elevation                  : {results.min_elevation_deg:.1f} deg")
+    print("=" * 76)
     print()
 
 
 def print_frame_samples(results: NetworkScore, every_frames: int = 60) -> None:
-    """Print sampled snapshot metrics without flooding the console."""
     every_frames = max(1, int(every_frames))
-
     print(
-        f"{'Frame':>7} {'Sim time':>12} {'Links':>8} "
-        f"{'Mean dist':>12} {'Total dist':>13} {'Score':>9} {'Running':>9}"
+        f"{'Frame':>7} {'Sim time':>11} {'Links':>7} {'Link':>8} "
+        f"{'Cover':>8} {'Near km':>10} {'WorstP':>8} {'Frame':>8}"
     )
     print("-" * 84)
 
-    for index in range(0, len(results.frame_scores), every_frames):
-        row = results.frame_scores[index]
+    def print_row(row):
+        near = row.mean_nearest_receiver_distance
+        near_text = f"{near:.0f}" if np.isfinite(near) else "inf"
         print(
-            f"{row.frame:7d} {row.time:10.1f}s {row.active_links:8d} "
-            f"{row.mean_link_distance:10.1f}km "
-            f"{row.total_link_distance:11.1f}km "
-            f"{row.score:9.4f} {row.running_score:9.4f}"
+            f"{row.frame:7d} {row.time:9.1f}s {row.active_links:7d} "
+            f"{row.link_score:8.4f} {100*row.coverage_fraction:7.1f}% "
+            f"{near_text:>10} {row.worst_receiver_penalty:8.4f} {row.score:8.5f}"
         )
 
-    # Always show the last frame if it was not already printed.
-    if results.frame_scores and (len(results.frame_scores) - 1) % every_frames:
-        row = results.frame_scores[-1]
-        print(
-            f"{row.frame:7d} {row.time:10.1f}s {row.active_links:8d} "
-            f"{row.mean_link_distance:10.1f}km "
-            f"{row.total_link_distance:11.1f}km "
-            f"{row.score:9.4f} {row.running_score:9.4f}"
-        )
+    for row in results.frame_scores[::every_frames]:
+        print_row(row)
+    if results.frame_scores[-1].frame % every_frames != 0:
+        print_row(results.frame_scores[-1])
     print()
 
 
 def write_score_csv(results: NetworkScore, output) -> Path:
-    """Write one diagnostics row per simulation snapshot."""
     output = Path(output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-
+    fields = [field.name for field in SnapshotScore.__dataclass_fields__.values()]
     with output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(
-            [
-                "frame",
-                "simulation_time_s",
-                "active_links",
-                "max_possible_links",
-                "link_fraction",
-                "mean_link_distance_km",
-                "total_link_distance_km",
-                "normalized_distance_sum",
-                "snapshot_score",
-                "running_score",
-            ]
-        )
-
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
         for row in results.frame_scores:
-            writer.writerow(
-                [
-                    row.frame,
-                    f"{row.time:.9f}",
-                    row.active_links,
-                    row.max_possible_links,
-                    f"{row.link_fraction:.9f}",
-                    f"{row.mean_link_distance:.9f}",
-                    f"{row.total_link_distance:.9f}",
-                    f"{row.normalized_distance_sum:.9f}",
-                    f"{row.score:.9f}",
-                    f"{row.running_score:.9f}",
-                ]
-            )
-
+            writer.writerow({name: getattr(row, name) for name in fields})
     return output
