@@ -1,0 +1,194 @@
+"""RoutingEnv: the frozen RL interface for next-hop bundle routing.
+
+This is the artifact for the 20 Aug milestone ("RL API fixed"): the
+observation layout, action space and reward signature below are meant to be
+STABLE from here on. Only the contact-plan source (`mock_graph.py` today,
+Serafin's real generator later) should change underneath it.
+
+Action space:      Discrete(14) -- pick one of the 14 fixed node IDs as the
+                    next hop for the bundle currently held by the agent.
+Observation space:  Box, fixed length 158 =
+                        4   bundle features
+                      + 14 candidate nodes * 11 features each
+Reward:             simplified version of the R formula in section 5.5
+                    (delivered / on-time / latency / deadline miss / hop cost).
+"""
+
+from __future__ import annotations
+
+import random
+
+import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
+
+from .mock_graph import (
+    NUM_NODES,
+    SCIENCE_ID,
+    GROUND_IDS,
+    MockContactPlan,
+    Bundle,
+)
+
+BUNDLE_FEATURES = 4
+CANDIDATE_FEATURES = 11
+OBS_LEN = BUNDLE_FEATURES + NUM_NODES * CANDIDATE_FEATURES
+
+MAX_HOPS = 8
+STEP_S = 5.0  # sim tick while waiting for a contact, matches section 8.1
+
+
+class RoutingEnv(gym.Env):
+    """Custom Gymnasium env matching the plan's fixed 14-node interface."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(self, horizon_s: float = 1800.0, seed: int | None = None):
+        super().__init__()
+        self.horizon_s = horizon_s
+        self._base_seed = seed
+        self.action_space = spaces.Discrete(NUM_NODES)
+        self.observation_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(OBS_LEN,), dtype=np.float32
+        )
+
+        self.rng = random.Random(seed)
+        self.contact_plan: MockContactPlan | None = None
+        self.bundle: Bundle | None = None
+        self.t = 0.0
+        self.hops = 0
+
+    # ------------------------------------------------------------------
+    # Gymnasium API
+    # ------------------------------------------------------------------
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            self.rng = random.Random(seed)
+        self.contact_plan = MockContactPlan(horizon_s=self.horizon_s, seed=self.rng.randint(0, 10**9))
+        self.t = 0.0
+        self.bundle = self.contact_plan.sample_bundle(self.t, self.rng)
+        self.bundle.current_holder = SCIENCE_ID
+        self.hops = 0
+        obs = self._build_observation()
+        info = {"action_mask": self._action_mask()}
+        return obs, info
+
+    def step(self, action: int):
+        mask = self._action_mask()
+        reward = 0.0
+        terminated = False
+        truncated = False
+        info = {}
+
+        if mask[action] == 0:
+            # Invalid pick: heavily penalised, episode ends (mirrors "invalid
+            # action" handling in section 9.2 -- the masked policy should
+            # never actually do this once trained).
+            reward -= 15.0
+            terminated = True
+            info["event"] = "invalid_action"
+            obs = self._build_observation()
+            info["action_mask"] = mask
+            return obs, reward, terminated, truncated, info
+
+        contact = self._best_contact_to(action)
+        depart = max(self.t, contact.start_s)
+        tx_time = self.bundle.remaining_bytes * 8 / contact.data_rate_bps
+        arrival = depart + tx_time
+
+        self.t = arrival
+        self.bundle.current_holder = action
+        self.hops += 1
+        reward -= 2.0  # per-hop cost, section 5.5
+        reward -= 5.0 * contact.queue_norm  # congestion penalty proxy
+
+        if action in GROUND_IDS:
+            terminated = True
+            on_time = self.t <= self.bundle.deadline_s
+            reward += 100.0
+            if on_time:
+                reward += 100.0 * self.bundle.science_priority
+                info["event"] = "delivered_on_time"
+            else:
+                reward -= 25.0
+                info["event"] = "delivered_late"
+            reward -= 0.05 * self.t
+        elif self.t > self.bundle.deadline_s:
+            terminated = True
+            reward -= 25.0
+            info["event"] = "missed_deadline"
+        elif self.hops >= MAX_HOPS:
+            truncated = True
+            reward -= 25.0
+            info["event"] = "max_hops"
+
+        obs = self._build_observation()
+        info["action_mask"] = self._action_mask()
+        return obs, reward, terminated, truncated, info
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def action_masks(self) -> np.ndarray:
+        """sb3-contrib MaskablePPO convention."""
+        return self._action_mask()
+
+    def _action_mask(self) -> np.ndarray:
+        mask = np.zeros(NUM_NODES, dtype=np.int8)
+        holder = self.bundle.current_holder
+        for c in self.contact_plan.open_contacts_from(holder, self.t):
+            mask[c.destination_id] = 1
+        future = [
+            c for c in self.contact_plan.contacts
+            if c.source_id == holder and c.start_s >= self.t
+        ]
+        for c in future:
+            mask[c.destination_id] = 1
+        mask[holder] = 0
+        return mask
+
+    def _best_contact_to(self, dest_id: int):
+        holder = self.bundle.current_holder
+        candidates = [
+            c for c in self.contact_plan.contacts
+            if c.source_id == holder and c.destination_id == dest_id and c.end_s >= self.t
+        ]
+        candidates.sort(key=lambda c: max(self.t, c.start_s))
+        return candidates[0]
+
+    def _build_observation(self) -> np.ndarray:
+        b = self.bundle
+        bundle_feats = [
+            b.science_priority,
+            min(b.remaining_bytes / 1e9, 1.0),
+            max(0.0, min((b.deadline_s - self.t) / self.horizon_s, 1.0)),
+            min(self.t / self.horizon_s, 1.0),
+        ]
+
+        mask = self._action_mask()
+        holder = self.bundle.current_holder
+        rows = []
+        for node_id in range(NUM_NODES):
+            valid = mask[node_id]
+            if valid:
+                c = self._best_contact_to(node_id)
+                remaining = max(0.0, c.end_s - max(self.t, c.start_s))
+                rows.extend([
+                    1.0,
+                    min(c.data_rate_bps / 5e7, 1.0),
+                    min(remaining / self.horizon_s, 1.0),
+                    min(c.range_km / 40000.0, 1.0),
+                    c.queue_norm,
+                    c.storage_free_norm,
+                    c.health,
+                    c.battery,
+                    c.weather_risk,
+                    max(0.0, min((self.horizon_s - self.t) / self.horizon_s, 1.0)),
+                    c.reliability,
+                ])
+            else:
+                rows.extend([0.0] * CANDIDATE_FEATURES)
+
+        obs = np.array(bundle_feats + rows, dtype=np.float32)
+        return obs
