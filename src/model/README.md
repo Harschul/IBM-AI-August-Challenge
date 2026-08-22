@@ -557,7 +557,10 @@ The satellite model currently provides physical satellite positions and pairwise
 
 This bundle does **not** add a new model for:
 
+<!-- Done! -->
+<!-- Check packet.py -->
 - generated data packets;
+
 - per-satellite storage capacity;
 - store-and-forward queues;
 - scheduling transmissions;
