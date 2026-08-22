@@ -561,7 +561,12 @@ This bundle does **not** add a new model for:
 <!-- Check packet.py -->
 - generated data packets;
 
+<!-- Done! -->
+<!-- Added storage_capacity to Satellite (nodes.py), enforced per-satellite packet queue capacity in
+     simulate_packet_routing() (packet.py), and added storage_capacity in satellite_generator.py -->
 - per-satellite storage capacity;
+
+
 - store-and-forward queues;
 - scheduling transmissions;
 - route selection;

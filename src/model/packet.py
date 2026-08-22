@@ -176,8 +176,19 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
         frame = networkSnapshot.frame
         adj_graph = build_adjacency_graph(networkSnapshot)
 
+        # Count how many satellites_in_flight packets are currently sitting on each satellite
+        packets_queued_per_satellite = defaultdict(int)
+        for packet in satellites_in_flight:
+            current_carrier_satellite = packet.path[-1] if packet.path else packet.original_satellite
+            packets_queued_per_satellite[current_carrier_satellite] += 1
+
         # Spawning new packets
         for sat_idx in range(len(satellites)):
+
+            # Drop the new packet if this satellite's queue is already full
+            if packets_queued_per_satellite[sat_idx] >= satellites[sat_idx].storage_capacity():
+                continue
+
             if random_number.random() < arrival_rate:
                 satellites_in_flight.append(Packet(
                     packet_id=frame * len(satellites) + sat_idx,

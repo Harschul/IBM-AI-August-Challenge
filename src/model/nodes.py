@@ -39,6 +39,7 @@ class Satellite:
         raan=0.0,
         angular_velocity=0.0,
         connection_range=0.0,
+        storage_capacity=100,
         **legacy_kwargs,
     ):
         # Backward compatibility for older callers that still pass
@@ -59,6 +60,7 @@ class Satellite:
         self._raan = float(raan) % (2.0 * np.pi)
         self._angular_velocity = float(angular_velocity)
         self._connection_range = float(connection_range)
+        self._storage_capacity = int(storage_capacity)
 
         if self._radius <= 0:
             raise ValueError("radius must be positive")
@@ -66,6 +68,8 @@ class Satellite:
             raise ValueError("connection_range cannot be negative")
         if not np.isfinite(self._angular_velocity):
             raise ValueError("angular_velocity must be finite")
+        if self._storage_capacity < 1:
+            raise ValueError("Storage capacity can't be negative or 0")
 
         self._initial_phase = self._phase
         self._time = 0.0
@@ -112,6 +116,9 @@ class Satellite:
 
     def connection_range(self):
         return self._connection_range
+
+    def storage_capacity(self):
+        return self._storage_capacity
 
     def time(self):
         return self._time
