@@ -574,7 +574,12 @@ This bundle does **not** add a new model for:
      satellites_dropped -->
 - store-and-forward queues;
 
+<!-- Done! -->
+<!-- Implemented a transmission limit to one packet per frame per satellite -->
+<!-- Updated nodes.py, satellite_generator.py, and packet.py -->
 - scheduling transmissions;
+
+
 - route selection;
 - link bandwidth;
 - receiver capacity;

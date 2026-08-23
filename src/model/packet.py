@@ -194,16 +194,20 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
                         created_at_frame=frame))
 
         # Attempting one hop per packet across all satellite queues
-        next_queues: dict[int, deque] = defaultdict(deque)
+        satellites_next_queues: dict[int, deque] = defaultdict(deque)
+
         for sat_idx in range(len(satellites)):
-            while satellite_queues[sat_idx]:
+            for _ in range(
+                min(satellites[sat_idx].transmit_limit(), len(satellite_queues[sat_idx]))
+                ):
+
                 packet = satellite_queues[sat_idx].popleft()
                 carrierSatellite = packet.path[-1] if packet.path else packet.original_satellite
                 next_hop_satellite = bfs_to_closest_receiver(carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
 
                 if next_hop_satellite is None:
                     # No route this frame — store packet and retry next frame
-                    next_queues[sat_idx].append(packet)
+                    satellites_next_queues[sat_idx].append(packet)
                 elif next_hop_satellite == carrierSatellite:
                     # Already at a receiver-visible satellite, deliver packet
                     packet.delivered = True
@@ -213,9 +217,9 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
                     # Move one hop closer to a receiver
                     packet.path.append(next_hop_satellite)
                     packet.hops += 1
-                    next_queues[next_hop_satellite].append(packet)
+                    satellites_next_queues[next_hop_satellite].append(packet)
 
-        queues = next_queues
+        satellite_queues = satellites_next_queues
 
     return satellites_delivered, satellites_dropped, satellite_queues
 

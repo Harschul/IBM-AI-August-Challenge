@@ -26,6 +26,7 @@ def generate_satellites(
     velocity_fluctuation=0.0001,
     connection_range=5000,
     storage_capacity=100,
+    transmit_limit=1,
     seed=None,
 ):
     """Generate randomized satellites for the circular-orbit model."""
@@ -84,7 +85,8 @@ def generate_satellites(
                 raan=raan,
                 angular_velocity=satellite_velocity,
                 connection_range=connection_range,
-                storage_capacity=storage_capacity
+                storage_capacity=storage_capacity,
+                transmit_limit=transmit_limit,
             )
         )
 
@@ -108,6 +110,7 @@ def satellite_to_dict(satellite) -> dict:
         "angular_velocity": float(satellite.angular_velocity()),
         "connection_range": float(satellite.connection_range()),
         "storage_capacity": float(satellite.storage_capacity()),
+        "transmit_limit": int(satellite.transmit_limit()),
     }
 
 
@@ -149,6 +152,7 @@ def load_satellites(path):
                 angular_velocity=record["angular_velocity"],
                 connection_range=record["connection_range"],
                 storage_capacity=record.get("storage_capacity", 100),
+                transmit_limit=record.get("transmit_limit", 1),
             )
         )
 
