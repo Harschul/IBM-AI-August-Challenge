@@ -163,7 +163,8 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
 
     # Initializing starting variables
     random_number = np.random.default_rng(seed)
-    satellites_in_flight: list[Packet] = []
+    satellite_queues: dict[int, deque] = defaultdict(deque)
+    satellites_dropped: list[Packet] = []
     satellites_delivered: list[Packet] = []
 
     # Satellite has a 10% chance of spawning a packet per frame.
@@ -176,50 +177,47 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
         frame = networkSnapshot.frame
         adj_graph = build_adjacency_graph(networkSnapshot)
 
-        # Count how many satellites_in_flight packets are currently sitting on each satellite
-        packets_queued_per_satellite = defaultdict(int)
-        for packet in satellites_in_flight:
-            current_carrier_satellite = packet.path[-1] if packet.path else packet.original_satellite
-            packets_queued_per_satellite[current_carrier_satellite] += 1
-
         # Spawning new packets
         for sat_idx in range(len(satellites)):
 
-            # Drop the new packet if this satellite's queue is already full
-            if packets_queued_per_satellite[sat_idx] >= satellites[sat_idx].storage_capacity():
-                continue
-
             if random_number.random() < arrival_rate:
-                satellites_in_flight.append(Packet(
-                    packet_id=frame * len(satellites) + sat_idx,
-                    original_satellite=sat_idx,
-                    created_at_frame=frame))
+                # Drop the new packet if this satellite's queue is already full
+                if len(satellite_queues[sat_idx]) >= satellites[sat_idx].storage_capacity():
+                    satellites_dropped.append(Packet(
+                        packet_id=frame * len(satellites) + sat_idx,
+                        original_satellite=sat_idx,
+                        created_at_frame=frame))
+                else:
+                    satellite_queues[sat_idx].append(Packet(
+                        packet_id=frame * len(satellites) + sat_idx,
+                        original_satellite=sat_idx,
+                        created_at_frame=frame))
 
-        # Attempting one hop per packet
-        satellites_flying = []
-        for packet in satellites_in_flight:
+        # Attempting one hop per packet across all satellite queues
+        next_queues: dict[int, deque] = defaultdict(deque)
+        for sat_idx in range(len(satellites)):
+            while satellite_queues[sat_idx]:
+                packet = satellite_queues[sat_idx].popleft()
+                carrierSatellite = packet.path[-1] if packet.path else packet.original_satellite
+                next_hop_satellite = bfs_to_closest_receiver(carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
 
-            # Retrieve the current carrier satellite index
-            carrierSatellite = packet.path[-1] if packet.path else packet.original_satellite
-            next_hop_satellite = bfs_to_closest_receiver(carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
+                if next_hop_satellite is None:
+                    # No route this frame — store packet and retry next frame
+                    next_queues[sat_idx].append(packet)
+                elif next_hop_satellite == carrierSatellite:
+                    # Already at a receiver-visible satellite, deliver packet
+                    packet.delivered = True
+                    packet.delivered_at_frame = frame
+                    satellites_delivered.append(packet)
+                else:
+                    # Move one hop closer to a receiver
+                    packet.path.append(next_hop_satellite)
+                    packet.hops += 1
+                    next_queues[next_hop_satellite].append(packet)
 
-            if next_hop_satellite is None:
-                # No route this frame, store packet and wait
-                satellites_flying.append(packet)
-            elif next_hop_satellite == carrierSatellite:
-                # Already at a receiver-visible satellite, deliver packet
-                packet.delivered = True
-                packet.delivered_at_frame = frame
-                satellites_delivered.append(packet)
-            else:
-                # Move one packet hop closer to a receiver
-                packet.path.append(next_hop_satellite)
-                packet.hops += 1
-                satellites_flying.append(packet)
+        queues = next_queues
 
-        satellites_in_flight = satellites_flying
-
-    return satellites_delivered, satellites_in_flight
+    return satellites_delivered, satellites_dropped, satellite_queues
 
             
 

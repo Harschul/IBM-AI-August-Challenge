@@ -566,8 +566,14 @@ This bundle does **not** add a new model for:
      simulate_packet_routing() (packet.py), and added storage_capacity in satellite_generator.py -->
 - per-satellite storage capacity;
 
-
+<!-- Done! -->
+<!-- Implemented a queue ordering where packets from all satellites are mixed in one list -->
+<!-- No first in, first out ordering per satellite. Packets can now be tracked especially ones
+     that are discarded after capacity gets filled -->
+<!-- (packet.py) Converted satellites_in_flight to satellites_queues, added satellites_next_queues and 
+     satellites_dropped -->
 - store-and-forward queues;
+
 - scheduling transmissions;
 - route selection;
 - link bandwidth;
