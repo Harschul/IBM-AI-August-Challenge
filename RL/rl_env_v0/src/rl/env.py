@@ -11,7 +11,18 @@ Observation space:  Box, fixed length 158 =
                         4   bundle features
                       + 14 candidate nodes * 11 features each
 Reward:             simplified version of the R formula in section 5.5
-                    (delivered / on-time / latency / deadline miss / hop cost).
+                    (delivered / on-time / latency / deadline miss / hop cost /
+                    congestion / failed-transmission risk / energy cost).
+
+Ablation support:
+    `ablation=None`             -> full observation (default / production policy)
+    `ablation="no_priority"`    -> bundle's science_priority feature zeroed out
+    `ablation="no_weather_health"` -> per-candidate weather_risk and health
+                                      features zeroed out
+    In both ablation modes the *environment dynamics and reward* still use
+    the true underlying values -- only what the agent gets to OBSERVE is
+    restricted. This isolates the effect of the agent losing access to that
+    information, per section 11.4's ablation requirement.
 """
 
 from __future__ import annotations
@@ -43,10 +54,15 @@ class RoutingEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, horizon_s: float = 1800.0, seed: int | None = None):
+    VALID_ABLATIONS = (None, "no_priority", "no_weather_health")
+
+    def __init__(self, horizon_s: float = 1800.0, seed: int | None = None, ablation: str | None = None):
         super().__init__()
+        if ablation not in self.VALID_ABLATIONS:
+            raise ValueError(f"ablation must be one of {self.VALID_ABLATIONS}, got {ablation!r}")
         self.horizon_s = horizon_s
         self._base_seed = seed
+        self.ablation = ablation
         self.action_space = spaces.Discrete(NUM_NODES)
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_LEN,), dtype=np.float32
@@ -102,6 +118,25 @@ class RoutingEnv(gym.Env):
         self.hops += 1
         reward -= 2.0  # per-hop cost, section 5.5
         reward -= 5.0 * contact.queue_norm  # congestion penalty proxy
+
+        # failed_transmission risk, section 5.5 (-15 * failed_transmission).
+        # No hard failure state yet -- modelled as expected cost from the
+        # contact's own risk signals, same style as the congestion penalty
+        # above. weather dominates, node health and link reliability soften
+        # or worsen it. This is what makes weather_risk/health actually
+        # matter to the policy (see VALID_ABLATIONS docstring above).
+        p_fail = max(0.0, min(
+            0.5 * contact.weather_risk + 0.3 * (1.0 - contact.health) + 0.2 * (1.0 - contact.reliability),
+            0.9,
+        ))
+        reward -= 15.0 * p_fail
+        info["failed_transmission_risk"] = p_fail
+
+        # energy_penalty, section 5.5 (-2 * energy_penalty). Cost of routing
+        # through a relay with a depleted battery.
+        energy_penalty = 1.0 - contact.battery
+        reward -= 2.0 * energy_penalty
+        info["energy_penalty"] = energy_penalty
 
         if action in GROUND_IDS:
             terminated = True
@@ -165,6 +200,8 @@ class RoutingEnv(gym.Env):
             max(0.0, min((b.deadline_s - self.t) / self.horizon_s, 1.0)),
             min(self.t / self.horizon_s, 1.0),
         ]
+        if self.ablation == "no_priority":
+            bundle_feats[0] = 0.0
 
         mask = self._action_mask()
         holder = self.bundle.current_holder
@@ -174,6 +211,8 @@ class RoutingEnv(gym.Env):
             if valid:
                 c = self._best_contact_to(node_id)
                 remaining = max(0.0, c.end_s - max(self.t, c.start_s))
+                health_obs = 0.0 if self.ablation == "no_weather_health" else c.health
+                weather_obs = 0.0 if self.ablation == "no_weather_health" else c.weather_risk
                 rows.extend([
                     1.0,
                     min(c.data_rate_bps / 5e7, 1.0),
@@ -181,9 +220,9 @@ class RoutingEnv(gym.Env):
                     min(c.range_km / 40000.0, 1.0),
                     c.queue_norm,
                     c.storage_free_norm,
-                    c.health,
+                    health_obs,
                     c.battery,
-                    c.weather_risk,
+                    weather_obs,
                     max(0.0, min((self.horizon_s - self.t) / self.horizon_s, 1.0)),
                     c.reliability,
                 ])

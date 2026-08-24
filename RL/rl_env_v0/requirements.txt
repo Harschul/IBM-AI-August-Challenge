@@ -12,6 +12,7 @@ sb3-contrib>=2.3.0
 # Numerical and plotting
 numpy>=1.24.0
 matplotlib>=3.7.0
+pandas>=2.0.0 
 
 # Optional but useful for logging (if you want tensorboard)
 tensorboard>=2.13.0
