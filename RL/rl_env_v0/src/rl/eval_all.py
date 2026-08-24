@@ -39,61 +39,70 @@ def run_batch(policy, n_episodes=300, start_seed=999, model=None):
         events.append(ev)
     return rewards, events
 
-def summarize(events, label):
+def summarize(rewards, events, label):
+    """Print summary statistics for a batch of episodes."""
     n = len(events)
+    if n == 0:
+        print(f"{label:>20}: no episodes")
+        return
+
     delivered = sum(1 for e in events if e.startswith("delivered"))
     on_time = sum(1 for e in events if e == "delivered_on_time")
     invalid = sum(1 for e in events if e == "invalid_action")
-    avg_reward = np.mean([r for r, _ in zip(rewards, events)]) if 'rewards' in dir() else 0
-    print(f"{label:>20}: delivered={delivered/n:.0%}  on_time={on_time/n:.0%}  invalid={invalid/n:.0%}")
+    avg_reward = np.mean(rewards) if rewards else 0.0
+
+    print(f"{label:>20}: delivered={delivered/n:.0%}  on_time={on_time/n:.0%}  "
+          f"invalid={invalid/n:.0%}  avg_reward={avg_reward:.1f}")
+    return {
+        "delivered": delivered / n,
+        "on_time": on_time / n,
+        "invalid": invalid / n,
+        "avg_reward": avg_reward,
+    }
 
 if __name__ == "__main__":
-    # First, get the masked-random baseline
-    print("=" * 60)
+    print("=" * 70)
     print("Running 300 episodes for masked-random (held-out seeds 999..1298)")
-    print("=" * 60)
-    random_r, random_e = run_batch("masked_random", 300, start_seed=999)
-    n = len(random_e)
-    r_delivered = sum(1 for e in random_e if e.startswith("delivered")) / n
-    r_ontime = sum(1 for e in random_e if e == "delivered_on_time") / n
-    r_invalid = sum(1 for e in random_e if e == "invalid_action") / n
-    print(f"\n{'Masked Random':>20}: delivered={r_delivered:.0%}  on_time={r_ontime:.0%}  invalid={r_invalid:.0%}\n")
+    print("=" * 70)
 
-    # Now evaluate all 3 trained models
+    random_r, random_e = run_batch("masked_random", 300, start_seed=999)
+    baseline_stats = summarize(random_r, random_e, "Masked Random")
+    print()
+
+    print("=" * 70)
+    print("Evaluating 3 trained agents on same held-out seeds")
+    print("=" * 70)
+
     model_seeds = [42, 7, 123]
     results = {}
-
-    print("=" * 60)
-    print("Evaluating 3 trained agents on same held-out seeds")
-    print("=" * 60)
 
     for seed in model_seeds:
         model_path = f"models/rl_agent_seed_{seed}.zip"
         try:
             model = MaskablePPO.load(model_path)
             rewards, events = run_batch("rl_agent", 300, start_seed=999, model=model)
-            n = len(events)
-            delivered = sum(1 for e in events if e.startswith("delivered")) / n
-            on_time = sum(1 for e in events if e == "delivered_on_time") / n
-            invalid = sum(1 for e in events if e == "invalid_action") / n
-            results[seed] = {"delivered": delivered, "on_time": on_time, "invalid": invalid}
-            print(f"Seed {seed:>3}: delivered={delivered:.0%}  on_time={on_time:.0%}  invalid={invalid:.0%}")
+            stats = summarize(rewards, events, f"RL (seed {seed})")
+            results[seed] = stats
         except FileNotFoundError:
             print(f"❌ Model not found: {model_path}")
 
-    # Compute mean and spread
     if results:
         d_vals = [r["delivered"] for r in results.values()]
         o_vals = [r["on_time"] for r in results.values()]
         i_vals = [r["invalid"] for r in results.values()]
+        r_vals = [r["avg_reward"] for r in results.values()]
 
         d_mean, d_min, d_max = np.mean(d_vals), np.min(d_vals), np.max(d_vals)
         o_mean, o_min, o_max = np.mean(o_vals), np.min(o_vals), np.max(o_vals)
+        r_mean = np.mean(r_vals)
 
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("📊 SUMMARY: 3-Seed Evaluation")
-        print("=" * 60)
-        print(f"Delivered:  {d_mean:.0%}  (range: {d_min:.0%} - {d_max:.0%})")
-        print(f"On-time:    {o_mean:.0%}  (range: {o_min:.0%} - {o_max:.0%})")
-        print(f"Masked Random baseline: delivered={r_delivered:.0%}  on_time={r_ontime:.0%}")
-        print("=" * 60)
+        print("=" * 70)
+        print(f"Delivered:     {d_mean:.0%}  (range: {d_min:.0%} - {d_max:.0%})")
+        print(f"On-time:       {o_mean:.0%}  (range: {o_min:.0%} - {o_max:.0%})")
+        print(f"Avg Reward:    {r_mean:.1f}")
+        print(f"Baseline (masked random): delivered={baseline_stats['delivered']:.0%}  "
+              f"on_time={baseline_stats['on_time']:.0%}  "
+              f"avg_reward={baseline_stats['avg_reward']:.1f}")
+        print("=" * 70)
