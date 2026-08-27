@@ -1,0 +1,280 @@
+{
+  "provenance": {
+    "git_commit": "5cfaa32e565e",
+    "checkpoints_sha256": {
+      "rl_agent_seed_7.zip": "294b645b77a6fd0f",
+      "rl_agent_seed_42.zip": "242d12c2a5f14201",
+      "rl_agent_seed_123.zip": "799d24112c49db81"
+    },
+    "replicates": 20,
+    "episodes_per_replicate": 25,
+    "held_out_seed_start": 999,
+    "replicate_stride": 10000,
+    "horizon_s": 1800.0,
+    "note": "contact-window bug (issue #4) open at time of run"
+  },
+  "summary": {
+    "masked_random": {
+      "priority_weighted_timely": {
+        "mean": 0.4315200159450948,
+        "std": 0.08903288466293928
+      },
+      "urgent_p95_latency_s": {
+        "mean": 748.4168888234349,
+        "std": 867.6333643039242
+      },
+      "deadline_success": {
+        "mean": 0.536,
+        "std": 0.0738704413501311
+      },
+      "delivery_ratio": {
+        "mean": 0.64,
+        "std": 0.06988712704293826
+      },
+      "mean_latency_s": {
+        "mean": 639.207461306728,
+        "std": 120.21086688872983
+      },
+      "mean_hops": {
+        "mean": 2.716,
+        "std": 0.30817629950881587
+      },
+      "mean_reward": {
+        "mean": 31.590626887329627,
+        "std": 9.510289703588683
+      }
+    },
+    "baseline_env_rules": {
+      "priority_weighted_timely": {
+        "mean": 0.8190612672298494,
+        "std": 0.07481322387229047
+      },
+      "urgent_p95_latency_s": {
+        "mean": 319.4266809886795,
+        "std": 152.50083833282665
+      },
+      "deadline_success": {
+        "mean": 0.8939999999999999,
+        "std": 0.04546832327074127
+      },
+      "delivery_ratio": {
+        "mean": 0.9720000000000001,
+        "std": 0.032052588367441265
+      },
+      "mean_latency_s": {
+        "mean": 218.5451092879141,
+        "std": 15.74833517994708
+      },
+      "mean_hops": {
+        "mean": 2.0,
+        "std": 0.03893314107138304
+      },
+      "mean_reward": {
+        "mean": 107.78854626800269,
+        "std": 7.598994165548866
+      }
+    },
+    "baseline_physical": {
+      "priority_weighted_timely": {
+        "mean": 0.7354951543036471,
+        "std": 0.10303322711055722
+      },
+      "urgent_p95_latency_s": {
+        "mean": 345.01688105327446,
+        "std": 136.5011769653269
+      },
+      "deadline_success": {
+        "mean": 0.8240000000000001,
+        "std": 0.07611625457500071
+      },
+      "delivery_ratio": {
+        "mean": 0.9279999999999999,
+        "std": 0.04420050011624658
+      },
+      "mean_latency_s": {
+        "mean": 323.2492814806639,
+        "std": 88.71125436860315
+      },
+      "mean_hops": {
+        "mean": 2.018,
+        "std": 0.039947333749378235
+      },
+      "mean_reward": {
+        "mean": 93.1983699698292,
+        "std": 11.184123360371679
+      }
+    },
+    "rl_seed_7": {
+      "priority_weighted_timely": {
+        "mean": 0.7387050190949846,
+        "std": 0.09618450028292344
+      },
+      "urgent_p95_latency_s": {
+        "mean": 359.49521750414436,
+        "std": 117.54003882548267
+      },
+      "deadline_success": {
+        "mean": 0.842,
+        "std": 0.06802476329288205
+      },
+      "delivery_ratio": {
+        "mean": 0.916,
+        "std": 0.04661149621013434
+      },
+      "mean_latency_s": {
+        "mean": 298.9510098934926,
+        "std": 35.24135785351641
+      },
+      "mean_hops": {
+        "mean": 1.916,
+        "std": 0.04661149621013435
+      },
+      "mean_reward": {
+        "mean": 94.35637527944137,
+        "std": 7.37698260049632
+      }
+    },
+    "rl_seed_42": {
+      "priority_weighted_timely": {
+        "mean": 0.738504464850293,
+        "std": 0.09126979159620652
+      },
+      "urgent_p95_latency_s": {
+        "mean": 378.4041385111922,
+        "std": 144.92356329000108
+      },
+      "deadline_success": {
+        "mean": 0.842,
+        "std": 0.06550210924687444
+      },
+      "delivery_ratio": {
+        "mean": 0.9119999999999999,
+        "std": 0.051257862041374995
+      },
+      "mean_latency_s": {
+        "mean": 301.5124817696349,
+        "std": 36.45165852206614
+      },
+      "mean_hops": {
+        "mean": 1.9120000000000001,
+        "std": 0.051257862041374995
+      },
+      "mean_reward": {
+        "mean": 93.898488558227,
+        "std": 7.16034909855574
+      }
+    },
+    "rl_seed_123": {
+      "priority_weighted_timely": {
+        "mean": 0.7354047395691021,
+        "std": 0.09380802235182328
+      },
+      "urgent_p95_latency_s": {
+        "mean": 359.8213306877668,
+        "std": 115.23545717187082
+      },
+      "deadline_success": {
+        "mean": 0.8379999999999999,
+        "std": 0.06420362344259002
+      },
+      "delivery_ratio": {
+        "mean": 0.9099999999999999,
+        "std": 0.05486826328388273
+      },
+      "mean_latency_s": {
+        "mean": 301.7366775853394,
+        "std": 38.5425332301878
+      },
+      "mean_hops": {
+        "mean": 1.9100000000000001,
+        "std": 0.05486826328388272
+      },
+      "mean_reward": {
+        "mean": 93.59359413472427,
+        "std": 7.575573359370554
+      }
+    },
+    "rl_fallback_invalid": {
+      "priority_weighted_timely": {
+        "mean": 0.7387050190949846,
+        "std": 0.09618450028292344
+      },
+      "urgent_p95_latency_s": {
+        "mean": 359.49521750414436,
+        "std": 117.54003882548267
+      },
+      "deadline_success": {
+        "mean": 0.842,
+        "std": 0.06802476329288205
+      },
+      "delivery_ratio": {
+        "mean": 0.916,
+        "std": 0.04661149621013434
+      },
+      "mean_latency_s": {
+        "mean": 298.9510098934926,
+        "std": 35.24135785351641
+      },
+      "mean_hops": {
+        "mean": 1.916,
+        "std": 0.04661149621013435
+      },
+      "mean_reward": {
+        "mean": 94.35637527944137,
+        "std": 7.37698260049632
+      }
+    },
+    "rl_fallback_unsafe": {
+      "priority_weighted_timely": {
+        "mean": 0.7239910743079315,
+        "std": 0.09880070452849239
+      },
+      "urgent_p95_latency_s": {
+        "mean": 371.03535541303364,
+        "std": 153.55433905190813
+      },
+      "deadline_success": {
+        "mean": 0.8220000000000001,
+        "std": 0.07045715383348797
+      },
+      "delivery_ratio": {
+        "mean": 0.9179999999999999,
+        "std": 0.04937504163888984
+      },
+      "mean_latency_s": {
+        "mean": 351.15454062618727,
+        "std": 86.69591467487298
+      },
+      "mean_hops": {
+        "mean": 1.924,
+        "std": 0.05174837907453823
+      },
+      "mean_reward": {
+        "mean": 90.98787708529495,
+        "std": 9.916776258287351
+      }
+    }
+  },
+  "fallback_activity": {
+    "rl_seed_7": {
+      "decisions": 958,
+      "fallbacks": 0
+    },
+    "rl_seed_42": {
+      "decisions": 956,
+      "fallbacks": 0
+    },
+    "rl_seed_123": {
+      "decisions": 955,
+      "fallbacks": 0
+    },
+    "rl_fallback_invalid": {
+      "decisions": 958,
+      "fallbacks": 0
+    },
+    "rl_fallback_unsafe": {
+      "decisions": 962,
+      "fallbacks": 73
+    }
+  }
+}
