@@ -55,6 +55,7 @@ class RoutingEnv(gym.Env):
     metadata = {"render_modes": []}
 
     VALID_ABLATIONS = (None, "no_priority", "no_weather_health")
+    MAX_RESET_ATTEMPTS = 50
 
     def __init__(self, horizon_s: float = 1800.0, seed: int | None = None, ablation: str | None = None):
         super().__init__()
@@ -81,13 +82,25 @@ class RoutingEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self.rng = random.Random(seed)
-        self.contact_plan = MockContactPlan(horizon_s=self.horizon_s, seed=self.rng.randint(0, 10**9))
-        self.t = 0.0
-        self.bundle = self.contact_plan.sample_bundle(self.t, self.rng)
-        self.bundle.current_holder = SCIENCE_ID
-        self.hops = 0
+        # Redraw until the science satellite has at least one feasible hop.
+        # Without this, feasibility filtering occasionally produces an episode
+        # that is over before it starts, which MaskablePPO cannot sample from.
+        for _ in range(self.MAX_RESET_ATTEMPTS):
+            self.contact_plan = MockContactPlan(
+                horizon_s=self.horizon_s, seed=self.rng.randint(0, 10**9))
+            self.t = 0.0
+            self.bundle = self.contact_plan.sample_bundle(self.t, self.rng)
+            self.bundle.current_holder = SCIENCE_ID
+            self.hops = 0
+            mask = self._action_mask()
+            if mask.any():
+                break
+        else:
+            raise RuntimeError(
+                "no routable scenario in %d attempts" % self.MAX_RESET_ATTEMPTS)
+
         obs = self._build_observation()
-        info = {"action_mask": self._action_mask()}
+        info = {"action_mask": mask}
         return obs, info
 
     def step(self, action: int):
@@ -108,7 +121,7 @@ class RoutingEnv(gym.Env):
             info["action_mask"] = mask
             return obs, reward, terminated, truncated, info
 
-        contact = self._best_contact_to(action)
+        contact = self._feasible_contact_to(action)
         depart = max(self.t, contact.start_s)
         tx_time = self.bundle.remaining_bytes * 8 / contact.data_rate_bps
         arrival = depart + tx_time
@@ -159,7 +172,18 @@ class RoutingEnv(gym.Env):
             info["event"] = "max_hops"
 
         obs = self._build_observation()
-        info["action_mask"] = self._action_mask()
+        next_mask = self._action_mask()
+
+        # With feasibility enforced, a bundle can now reach a node from which
+        # nothing can carry it onward. MaskablePPO cannot sample from an
+        # all-zero mask, so the episode has to end here rather than be offered
+        # to the policy as an impossible choice.
+        if not terminated and not truncated and not next_mask.any():
+            terminated = True
+            reward -= 25.0
+            info["event"] = "no_feasible_contact"
+
+        info["action_mask"] = next_mask
         return obs, reward, terminated, truncated, info
 
     # ------------------------------------------------------------------
@@ -172,25 +196,67 @@ class RoutingEnv(gym.Env):
     def _action_mask(self) -> np.ndarray:
         mask = np.zeros(NUM_NODES, dtype=np.int8)
         holder = self.bundle.current_holder
-        for c in self.contact_plan.open_contacts_from(holder, self.t):
-            mask[c.destination_id] = 1
-        future = [
-            c for c in self.contact_plan.contacts
-            if c.source_id == holder and c.start_s >= self.t
-        ]
-        for c in future:
-            mask[c.destination_id] = 1
-        mask[holder] = 0
+
+        # A destination is legal only if some contact to it can carry the whole
+        # bundle before its window shuts. Existence of a contact is no longer
+        # enough -- see _feasible_contact_to.
+        for dest_id in range(NUM_NODES):
+            if dest_id == holder:
+                continue
+            if self._feasible_contact_to(dest_id) is not None:
+                mask[dest_id] = 1
+
         return mask
 
-    def _best_contact_to(self, dest_id: int):
+    def _feasible_contact_to(self, dest_id: int):
+        """Best contact to dest_id that the transfer can actually COMPLETE in.
+
+        The old version only required that a contact exist and not be over yet.
+        That let a bundle be pushed through a window far too short to carry it:
+        a measured 61% of hops finished after `contact.end_s` (issue #4). The
+        transmission must fit, so the check is:
+
+            depart = max(now, contact.start_s)     # waiting is legal
+            depart + tx_time <= contact.end_s      # ...but the transfer must fit
+
+        Returns None when no contact to dest_id can carry the bundle. Callers
+        treat None as "not a legal next hop", which is what keeps the action
+        mask and step() in agreement -- they now ask the same question through
+        the same code path.
+        """
         holder = self.bundle.current_holder
-        candidates = [
-            c for c in self.contact_plan.contacts
-            if c.source_id == holder and c.destination_id == dest_id and c.end_s >= self.t
-        ]
-        candidates.sort(key=lambda c: max(self.t, c.start_s))
-        return candidates[0]
+        tx_time = self.bundle.remaining_bytes * 8
+
+        best = None
+        best_arrival = None
+        for c in self.contact_plan.contacts:
+            if c.source_id != holder or c.destination_id != dest_id:
+                continue
+            if c.end_s < self.t:
+                continue
+
+            depart = max(self.t, c.start_s)
+            if depart >= c.end_s:
+                continue
+
+            arrival = depart + tx_time / c.data_rate_bps
+            if arrival > c.end_s:
+                continue  # the window closes mid-transfer
+
+            if best_arrival is None or arrival < best_arrival:
+                best, best_arrival = c, arrival
+
+        return best
+
+    def _best_contact_to(self, dest_id: int):
+        """Backwards-compatible alias. Raises if the hop is not feasible, which
+        should be unreachable now that the mask filters on feasibility."""
+        contact = self._feasible_contact_to(dest_id)
+        if contact is None:
+            raise ValueError(
+                "no feasible contact from %d to %d at t=%.1f"
+                % (self.bundle.current_holder, dest_id, self.t))
+        return contact
 
     def _build_observation(self) -> np.ndarray:
         b = self.bundle
