@@ -104,6 +104,8 @@ class RoutingEnv(gym.Env):
         return obs, info
 
     def step(self, action: int):
+        assert self.bundle is not None, "call reset() before step()"
+        assert self.contact_plan is not None, "call reset() before step()"
         mask = self._action_mask()
         reward = 0.0
         terminated = False
@@ -194,6 +196,8 @@ class RoutingEnv(gym.Env):
         return self._action_mask()
 
     def _action_mask(self) -> np.ndarray:
+        assert self.bundle is not None, "call reset() before step()"
+        assert self.contact_plan is not None, "call reset() before step()"
         mask = np.zeros(NUM_NODES, dtype=np.int8)
         holder = self.bundle.current_holder
 
@@ -259,6 +263,7 @@ class RoutingEnv(gym.Env):
         return contact
 
     def _build_observation(self) -> np.ndarray:
+        assert self.bundle is not None, "call reset() before step()"
         b = self.bundle
         bundle_feats = [
             b.science_priority,
@@ -270,7 +275,6 @@ class RoutingEnv(gym.Env):
             bundle_feats[0] = 0.0
 
         mask = self._action_mask()
-        holder = self.bundle.current_holder
         rows = []
         for node_id in range(NUM_NODES):
             valid = mask[node_id]

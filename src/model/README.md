@@ -579,8 +579,16 @@ This bundle does **not** add a new model for:
 <!-- Updated nodes.py, satellite_generator.py, and packet.py -->
 - scheduling transmissions;
 
-
+<!-- Done! -->
+<!-- Added two more route selection strategy besides bfs_to_closest_receiver().
+     Added a greedy and least congested approach in packet.py -->
+<!-- BFS - Find closest to receiver with fewer hops -->
+<!-- Greedy - Find the neighbor who is the most physically closest to a receiver -->
+<!-- Least Congested - Extended BFS approach but gets the least packet loaded    
+     neighbor -->
 - route selection;
+
+
 - link bandwidth;
 - receiver capacity;
 - end-to-end delivery success;
