@@ -27,6 +27,7 @@ def generate_satellites(
     connection_range=5000,
     storage_capacity=100,
     transmit_limit=1,
+    link_bandwidth=4096,
     seed=None,
 ):
     """Generate randomized satellites for the circular-orbit model."""
@@ -87,6 +88,7 @@ def generate_satellites(
                 connection_range=connection_range,
                 storage_capacity=storage_capacity,
                 transmit_limit=transmit_limit,
+                link_bandwidth=link_bandwidth,
             )
         )
 
@@ -111,6 +113,7 @@ def satellite_to_dict(satellite) -> dict:
         "connection_range": float(satellite.connection_range()),
         "storage_capacity": float(satellite.storage_capacity()),
         "transmit_limit": int(satellite.transmit_limit()),
+        "link_bandwidth": int(satellite.link_bandwidth())
     }
 
 
@@ -153,6 +156,7 @@ def load_satellites(path):
                 connection_range=record["connection_range"],
                 storage_capacity=record.get("storage_capacity", 100),
                 transmit_limit=record.get("transmit_limit", 1),
+                link_bandwidth=record.get("link_bandwidth", 4096),
             )
         )
 

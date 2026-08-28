@@ -52,6 +52,9 @@ class Packet:
     # Packet Traversal Route
     hops: int = 0
     path: list[int] = field(default_factory=list)
+
+    # Bandwidth
+    bytes_size: int = 1024
     # _________________________________________________________________________
 
 
@@ -118,7 +121,7 @@ def can_see_any_ground_point(satellite, ground_points, earth_radius):
 # _______________________________________________________
 # Simulate the packet routing in a loop
 # _______________________________________________________
-def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, route_strategy, seed=0):
+def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, route_strategy="bfs", seed=0):
 
     # Initializing starting variables
     random_number = np.random.default_rng(seed)
@@ -128,7 +131,6 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
 
     # Satellite has a 10% chance of spawning a packet per frame.
     arrival_rate = 0.1
-
 
     for networkSnapshot in networkSnapshots: 
 
@@ -157,11 +159,21 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
         # Attempting one hop per packet across all satellite queues
         satellites_next_queues: dict[int, deque] = defaultdict(deque)
         for sat_idx in range(len(satellites)):
-            for _ in range(min(satellites[sat_idx].transmit_limit(), len(satellite_queues[sat_idx]))):
+            
+            # Initialize the amount of bytes sent to 0
+            bytes_sent = 0
+            
+            while (satellite_queues[sat_idx]):
 
-                # Retireve the current packet
+                # Check for bandwidth limits
+                packet = satellite_queues[sat_idx][0]
+                if bytes_sent + packet.bytes_size > satellites[sat_idx].link_bandwidth():
+                    break
+
+                # Retireve the current packet and carrier satellite
                 packet = satellite_queues[sat_idx].popleft()
                 carrierSatellite = packet.path[-1] if packet.path else packet.original_satellite
+                bytes_sent += packet.bytes_size
 
 
                 # Retrieving the next hop satellite depending on the routing strategy
@@ -194,11 +206,6 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
         satellite_queues = satellites_next_queues
 
     return satellites_delivered, satellites_dropped, satellite_queues
-
-
-
-
-
 
 
 # Packet Routing (Three Different Search Approach

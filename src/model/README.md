@@ -589,7 +589,12 @@ This bundle does **not** add a new model for:
 - route selection;
 
 
+<!-- Done! -->
+<!-- packet.py, satellite_generator.py, and nodes.py now tracks the amount of bytes
+     sent and has a bandwidth limit  -->
 - link bandwidth;
+
+
 - receiver capacity;
 - end-to-end delivery success;
 - end-to-end delay;

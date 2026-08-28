@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from multiprocessing import Value
 
 import numpy as np
 
@@ -41,6 +42,7 @@ class Satellite:
         connection_range=0.0,
         transmit_limit=1,
         storage_capacity=100,
+        link_bandwidth=4096,
         **legacy_kwargs,
     ):
         # Backward compatibility for older callers that still pass
@@ -63,6 +65,7 @@ class Satellite:
         self._connection_range = float(connection_range)
         self._storage_capacity = int(storage_capacity)
         self._transmit_limit = int(transmit_limit)
+        self._link_bandwidth = int(link_bandwidth)
 
         if self._radius <= 0:
             raise ValueError("radius must be positive")
@@ -74,6 +77,9 @@ class Satellite:
             raise ValueError("Storage capacity can't be negative or 0")
         if self._transmit_limit < 1:
             raise ValueError("Transmission limit can't be negative or 0")
+        if self._link_bandwidth < 1:
+            raise ValueError("Link bandwidth can't be negative or 0")
+
 
         self._initial_phase = self._phase
         self._time = 0.0
@@ -127,6 +133,8 @@ class Satellite:
     def transmission_limit(self):
         return self._transmit_limit
 
+    def link_bandwidth(self):
+        return self._link_bandwidth
 
     def time(self):
         return self._time
