@@ -599,8 +599,12 @@ This bundle does **not** add a new model for:
      next frame -->
 - receiver capacity;
 
+<!-- Done! -->
+<!-- Implemented a end-to-end calculation for delivery success rate and delays in packet.py. Functions delivery_success_rate() and end_to_end_delay() added -->
 - end-to-end delivery success;
 - end-to-end delay;
+
+
 - automatic comparison of the two optimized constellations.
 
 That omission is intentional for this revision. The two optimizers now produce two clearly separate constellation candidates that can be rendered and saved, but the requested future question—how effectively data originating anywhere in orbit reaches one of the Earth receivers, including store-and-forward behavior—has not been implemented here.

@@ -220,7 +220,7 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
     return satellites_delivered, satellites_dropped, satellite_queues
 
 
-# Packet Routing (Three Different Search Approach
+# Packet Routing (Three Different Search Approach)
 # _________________________________________________________________________
 
 
@@ -325,3 +325,54 @@ def least_congested_to_receiver(carrierSatellite, adj_graph, satellites, ground_
 
     return None
 # _________________________________________________________________________
+
+
+# End-to-end delivery success rate
+# _________________________________________________________________________
+# Returns the fraction of all generated packets that were 
+# successfully delivered.
+# _________________________________________________________________________
+def delivery_success_rate(delivered, dropped, undelivered_queues):
+
+    # Calculating packet success rate
+    total_packets_delivered = len(delivered)
+    total_packets_dropped = len(dropped)
+    total_packets_undelivered = sum(len(queue) for queue in undelivered_queues.values())
+    total_generated_packets = total_packets_delivered + total_packets_dropped + total_packets_undelivered
+
+    # Returning the success rate
+    if total_generated_packets == 0:
+        return 0.0
+    return total_packets_delivered / total_generated_packets
+
+
+# End-to-end delivery delay
+# _________________________________________________________________________
+# Returns the total time a packet spends in the network from the moment it's
+# created to the moment it's delivered, a calculation of the packet's delay
+# _________________________________________________________________________
+def end_to_end_delay(packets_delivered):
+
+    # Delay for a packet that has not yet been delivered
+    if not packets_delivered:
+        return {
+            "min": 0,
+            "max": 0,
+            "mean": 0.0,
+            "per_packet": []
+        }
+
+    # Calculating the packet delays
+    delays = [
+        (packet.delivered_at_frame - packet.created_at_frame) 
+        for packet in packets_delivered
+    ]
+
+    # Returning the delay results of the packets delivered
+    return {
+        "min": min(delays),
+        "max": max(delays),
+        "mean": sum(delays) / len(delays),
+        "per_packet": delays
+    }
+    
