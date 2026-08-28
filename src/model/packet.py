@@ -121,7 +121,7 @@ def can_see_any_ground_point(satellite, ground_points, earth_radius):
 # _______________________________________________________
 # Simulate the packet routing in a loop
 # _______________________________________________________
-def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, route_strategy="bfs", seed=0):
+def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, route_strategy="bfs", receiver_capacity=10, seed=0):
 
     # Initializing starting variables
     random_number = np.random.default_rng(seed)
@@ -131,13 +131,15 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
 
     # Satellite has a 10% chance of spawning a packet per frame.
     arrival_rate = 0.1
-
     for networkSnapshot in networkSnapshots: 
 
         # Retrieving the current frame of the network snapshot
         # and building its adjacency graph
         frame = networkSnapshot.frame
         adj_graph = build_adjacency_graph(networkSnapshot)
+
+        # Resets the amount of receivers delivered per frame
+        receivers_delivered = 0
 
         # Spawning new packets
         for sat_idx in range(len(satellites)):
@@ -189,16 +191,26 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
                         carrierSatellite, adj_graph, satellites, ground_points, earth_radius, satellite_queues)
                     
 
+                # No route this frame, store packet and retry next frame
                 if next_hop_satellite is None:
-                    # No route this frame — store packet and retry next frame
                     satellites_next_queues[sat_idx].append(packet)
+
+                # Already at a receiver-visible satellite, deliver packet
                 elif next_hop_satellite == carrierSatellite:
-                    # Already at a receiver-visible satellite, deliver packet
-                    packet.delivered = True
-                    packet.delivered_at_frame = frame
-                    satellites_delivered.append(packet)
+
+                    # Deliver only if the receivers has capacity in this current frame else
+                    # if it is full, store it and retry the next frame
+                    if receivers_delivered < len(ground_points) * receiver_capacity:
+                        packet.delivered = True
+                        packet.delivered_at_frame = frame
+                        satellites_delivered.append(packet)
+                        receivers_delivered += 1
+                    else:
+                        satellites_next_queues[sat_idx].append(packet)
+                    
+
+                # Move one hop closer to a receiver
                 else:
-                    # Move one hop closer to a receiver
                     packet.path.append(next_hop_satellite)
                     packet.hops += 1
                     satellites_next_queues[next_hop_satellite].append(packet)

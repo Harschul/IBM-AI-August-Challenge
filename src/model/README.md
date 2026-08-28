@@ -588,14 +588,17 @@ This bundle does **not** add a new model for:
      neighbor -->
 - route selection;
 
-
 <!-- Done! -->
 <!-- packet.py, satellite_generator.py, and nodes.py now tracks the amount of bytes
-     sent and has a bandwidth limit  -->
+     sent and has a bandwidth limit -->
 - link bandwidth;
 
-
+<!-- Done! -->
+<!-- Frames per network snapshot now has a limit to the amount of packets it
+     can deliver to receivers. Once full, it queues the remaining packets for the
+     next frame -->
 - receiver capacity;
+
 - end-to-end delivery success;
 - end-to-end delay;
 - automatic comparison of the two optimized constellations.

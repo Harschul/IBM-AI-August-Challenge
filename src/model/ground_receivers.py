@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def fibonacci_sphere(number_of_points: int = 100, radius: float = 6371.0) -> np.ndarray:
+def fibonacci_sphere(number_of_points: int = 100, radius: float = 6371.0, receiver_capacity: int = 10) -> np.ndarray:
     """Return approximately uniform points on a sphere using a Fibonacci lattice.
 
     Parameters
