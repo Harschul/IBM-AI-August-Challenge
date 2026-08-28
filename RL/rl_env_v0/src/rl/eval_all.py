@@ -7,8 +7,23 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import numpy as np
-from src.rl.env import RoutingEnv
-from sb3_contrib import MaskablePPO
+from gymnasium import spaces
+from src.rl.env import RoutingEnv, OBS_LEN
+from src.rl.mock_graph import NUM_NODES
+
+def _numpy2_compat():
+    """Let numpy-1.26 load checkpoints pickled under numpy 2.x."""
+    import numpy.core  # noqa: F401
+
+    for suffix in ("", ".numeric", ".multiarray", ".umath", ".numerictypes",
+                   ".overrides", "._multiarray_umath"):
+        new = "numpy._core" + suffix
+        if new in sys.modules:
+            continue
+        try:
+            sys.modules[new] = __import__("numpy.core" + suffix, fromlist=["_"])
+        except Exception:
+            pass
 
 def run_episode(env, policy, rng, model=None):
     obs, info = env.reset(seed=rng.randint(0, 10**9))
@@ -61,6 +76,16 @@ def summarize(rewards, events, label):
     }
 
 if __name__ == "__main__":
+    _numpy2_compat()
+    from sb3_contrib import MaskablePPO
+
+    space_overrides = {
+        "observation_space": spaces.Box(low=-1.0, high=1.0, shape=(OBS_LEN,), dtype=np.float32),
+        "action_space": spaces.Discrete(NUM_NODES),
+        "lr_schedule": lambda _: 0.0,
+        "clip_range": lambda _: 0.0,
+    }
+
     print("=" * 70)
     print("Running 300 episodes for masked-random (held-out seeds 999..1298)")
     print("=" * 70)
@@ -79,7 +104,7 @@ if __name__ == "__main__":
     for seed in model_seeds:
         model_path = f"models/rl_agent_seed_{seed}.zip"
         try:
-            model = MaskablePPO.load(model_path)
+            model = MaskablePPO.load(model_path, device="cpu", custom_objects=space_overrides)
             rewards, events = run_batch("rl_agent", 300, start_seed=999, model=model)
             stats = summarize(rewards, events, f"RL (seed {seed})")
             results[seed] = stats
