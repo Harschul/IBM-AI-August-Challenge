@@ -247,7 +247,14 @@ the SCI->ground pair.
                 "held_out_seed_start": HELD_OUT_START,
                 "horizon_s": 1800.0,
                 "policy": "temporal earliest-arrival, require_fit=True",
-                "note": "contact-window bug (issue #4) open at time of run",
+                # Detected, not asserted. This started life as a hardcoded
+                # string and silently went stale the moment the fix merged --
+                # a wrong label on correct numbers is worse than no label.
+                "contact_window_fix_present": hasattr(
+                    RoutingEnv, "_feasible_contact_to"),
+                "note": ("contact-window fix (issue #4) IS present"
+                         if hasattr(RoutingEnv, "_feasible_contact_to")
+                         else "contact-window bug (issue #4) OPEN at time of run"),
             },
             "architectures": {
                 name: sorted(nodes) for name, nodes in evaluable.items()
