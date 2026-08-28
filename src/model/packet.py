@@ -116,9 +116,9 @@ def can_see_any_ground_point(satellite, ground_points, earth_radius):
 
 # Simulating Routing Loop
 # _______________________________________________________
-# Simulate the packer routing in a loop
+# Simulate the packet routing in a loop
 # _______________________________________________________
-def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, seed=0, route_strategy="bfs"):
+def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_radius, route_strategy, seed=0):
 
     # Initializing starting variables
     random_number = np.random.default_rng(seed)
@@ -128,6 +128,7 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
 
     # Satellite has a 10% chance of spawning a packet per frame.
     arrival_rate = 0.1
+
 
     for networkSnapshot in networkSnapshots: 
 
@@ -140,7 +141,8 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
         for sat_idx in range(len(satellites)):
 
             if random_number.random() < arrival_rate:
-                # Drop the new packet if this satellite's queue is already full
+
+                # Drop the new packet if this satellite's queue is already full else queue it
                 if len(satellite_queues[sat_idx]) >= satellites[sat_idx].storage_capacity():
                     satellites_dropped.append(Packet(
                         packet_id=frame * len(satellites) + sat_idx,
@@ -154,15 +156,26 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
 
         # Attempting one hop per packet across all satellite queues
         satellites_next_queues: dict[int, deque] = defaultdict(deque)
-
         for sat_idx in range(len(satellites)):
-            for _ in range(
-                min(satellites[sat_idx].transmit_limit(), len(satellite_queues[sat_idx]))
-                ):
+            for _ in range(min(satellites[sat_idx].transmit_limit(), len(satellite_queues[sat_idx]))):
 
+                # Retireve the current packet
                 packet = satellite_queues[sat_idx].popleft()
                 carrierSatellite = packet.path[-1] if packet.path else packet.original_satellite
-                next_hop_satellite = bfs_to_closest_receiver(carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
+
+
+                # Retrieving the next hop satellite depending on the routing strategy
+                next_hop_satellite = None
+                if route_strategy == "greedy":
+                    next_hop_satellite = greedy_distance_to_receiver(
+                        carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
+                elif route_strategy == "bfs":
+                    next_hop_satellite = bfs_to_closest_receiver(
+                        carrierSatellite, adj_graph, satellites, ground_points, earth_radius)
+                elif route_strategy == "least_congested":
+                    next_hop_satellite = least_congested_to_receiver(
+                        carrierSatellite, adj_graph, satellites, ground_points, earth_radius, satellite_queues)
+                    
 
                 if next_hop_satellite is None:
                     # No route this frame — store packet and retry next frame
@@ -183,8 +196,15 @@ def simulate_packet_routing(networkSnapshots, satellites, ground_points, earth_r
     return satellites_delivered, satellites_dropped, satellite_queues
 
 
-# Packet Routing (BFS Search Approach)
-# _______________________________________________________
+
+
+
+
+
+# Packet Routing (Three Different Search Approach
+# _________________________________________________________________________
+
+
 # Find the shortest path to a neigboring satellite that is close
 # to a receiver
 # _______________________________________________________
@@ -220,10 +240,8 @@ def bfs_to_closest_receiver(carrierSatellite, adj_graph, satellites, ground_poin
     # Return if no route to a receiver was found
     # Store this and wait
     return None
-    
 
-# Find the next hop satellite index (Greedy Approach)
-# _______________________________________________________
+
 # Using greedy algorithmn, per each hop, retrieve the
 # neighboring satellite that is the closest to a receiver
 # _______________________________________________________
@@ -250,13 +268,9 @@ def greedy_distance_to_receiver(carrierSatellite, adj_graph, satellites, ground_
     return min(neighboring_satellites, key=min_distance_to_ground)
 
 
-
-# Find the next hop satellite index (BFS Least Congested Approach)
-# _______________________________________________________
-# BFS search for retreiving the closest to receiver neighbor satellite
-# but there are multiple neighboring satellites that is
-# close to a ground receiver. You want the least packet loaded
-# satellite and return that
+# Extended version of BFS search meaning finding the shortest path
+# to a satellite connected to a ground receiver, but also accounting for which
+# satellite has the least amount of packets congested
 # _______________________________________________________
 def least_congested_to_receiver(carrierSatellite, adj_graph, satellites, ground_points, earth_radius, satellite_queues):
     """ Return the next hop satellite index, or None if no route exists this frame """
@@ -291,3 +305,4 @@ def least_congested_to_receiver(carrierSatellite, adj_graph, satellites, ground_
                     return first_hop
 
     return None
+# _________________________________________________________________________
