@@ -1,3 +1,10 @@
+# Full project dependencies. REQUIRES PYTHON 3.11+ -- contourpy 1.3.3,
+# numpy 2.5.2 and matplotlib 3.11.1 publish no wheels for older versions,
+# so this file fails to install on 3.9/3.10 with a Requires-Python error.
+#
+# For the RL environment on an older Python, use
+# RL/rl_env_v0/requirements.txt instead (lower bounds, works on 3.9+).
+
 contourpy==1.3.3
 cycler==0.12.1
 fonttools==4.63.0
