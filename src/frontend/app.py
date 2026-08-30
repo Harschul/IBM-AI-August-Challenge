@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import io
 import json
 import time
 from dataclasses import asdict
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from src.frontend.figures import build_orbital_figure, build_topology_figure
 from src.frontend.replay import build_replay, node_label
-from src.integration.config import GROUND_IDS, PrototypeConfig
 
 
 st.set_page_config(
@@ -56,6 +53,7 @@ def _bundle_frame(replay):
         rows.append(
             {
                 "bundle_id": bundle.bundle_id,
+                "source": node_label(bundle.source_id, replay.config),
                 "priority": round(bundle.science_priority, 3),
                 "data_type": bundle.data_type,
                 "created_s": round(bundle.created_s, 2),
@@ -64,6 +62,8 @@ def _bundle_frame(replay):
                 "on_time": bundle.on_time,
                 "arrival_s": None if bundle.arrival_s is None else round(bundle.arrival_s, 2),
                 "hops": len(bundle.hops),
+                "requested_algorithms": " + ".join(bundle.requested_algorithms) or "none",
+                "actual_algorithms": " + ".join(bundle.actual_algorithms) or "none",
                 "fallbacks": bundle.fallbacks,
                 "path": " -> ".join(str(n) for n in bundle.path),
                 "reason": bundle.reason,
@@ -76,13 +76,16 @@ def _metric_row(replay, time_s: float):
     summary = replay.summary()
     active_contacts = replay.active_contacts(time_s)
     active_packets = replay.active_packets(time_s)
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("Current policy", replay.current_policy_label(time_s).upper())
-    m2.metric("Active links", len(active_contacts))
-    m3.metric("Packets in flight", len(active_packets))
-    m4.metric("Delivered", f"{summary.delivered}/{summary.bundles}")
-    m5.metric("On-time", f"{100 * summary.deadline_success:.1f}%")
-    m6.metric("Fallbacks", summary.total_fallbacks)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
+    requested = replay.requested_algorithm_at(time_s).upper()
+    actual = replay.actual_algorithm_at(time_s).upper()
+    m1.metric("Requested", requested)
+    m2.metric("Actually executing", actual)
+    m3.metric("Active links", len(active_contacts))
+    m4.metric("Packets in flight", len(active_packets))
+    m5.metric("Delivered", f"{summary.delivered}/{summary.bundles}")
+    m6.metric("On-time", f"{100 * summary.deadline_success:.1f}%")
+    m7.metric("RL → temporal fallbacks", summary.total_fallbacks)
 
 
 def _sidebar_controls():
@@ -170,8 +173,8 @@ def main():
     )
 
     if not replay.model_loaded:
-        st.info(
-            "RL checkpoint not found or not loadable in this environment. The app still runs, and any RL segment automatically falls back to the temporal router."
+        st.warning(
+            "RL checkpoint is unavailable or not loadable. If RL is requested, the replay records the requested algorithm as RL but the actual algorithm as TEMPORAL fallback. It will not be reported as RL execution."
         )
 
     time_s = _timeline_controls(replay)
@@ -212,10 +215,10 @@ def main():
         if not selected.empty:
             row = selected.iloc[0]
             st.markdown(
-                f"**{selected_bundle_id}** · {row['data_type']} · priority **{row['priority']:.2f}** · path **{row['path']}**"
+                f"**{selected_bundle_id}** · source **{row['source']}** · {row['data_type']} · priority **{row['priority']:.2f}** · path **{row['path']}**"
             )
             st.markdown(
-                f"Created at **{row['created_s']}s**, deadline **{row['deadline_s']}s**, delivered **{row['delivered']}**, on-time **{row['on_time']}**, fallbacks **{row['fallbacks']}**"
+                f"Created at **{row['created_s']}s**, deadline **{row['deadline_s']}s**, requested **{row['requested_algorithms']}**, actually used **{row['actual_algorithms']}**, delivered **{row['delivered']}**, on-time **{row['on_time']}**, RL fallbacks **{row['fallbacks']}**"
             )
         st.dataframe(bundle_df, use_container_width=True, hide_index=True)
 
@@ -239,6 +242,9 @@ def main():
                 "priority_weighted_timely": round(summary.priority_weighted_timely, 3),
                 "mean_latency_s": None if summary.mean_latency_s is None else round(summary.mean_latency_s, 2),
                 "mean_hops": round(summary.mean_hops, 2),
+                "rl_requested_hops": summary.rl_requested_hops,
+                "rl_executed_hops": summary.rl_executed_hops,
+                "temporal_executed_hops": summary.temporal_executed_hops,
             }
         )
         st.markdown("### Features included in this frontend bundle")
@@ -248,8 +254,10 @@ def main():
             "- mid-run temporal ↔ RL switch control\n"
             "- selected-bundle route highlighting\n"
             "- bundle/event tables for debugging and demos\n"
+            "- requested-vs-actual routing labels on every hop and packet\n"
             "- graceful fallback when the RL checkpoint is unavailable"
         )
+
 
     with tabs[3]:
         bundle_df = _bundle_frame(replay)

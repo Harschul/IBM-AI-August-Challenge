@@ -29,7 +29,7 @@ from src.frontend.theme import (
     TEMPORAL,
     TEXT,
 )
-from src.integration.config import GEO_IDS, GROUND_IDS, LEO_IDS, SCIENCE_ID, node_role
+from src.integration.config import GEO_IDS, GROUND_IDS, LEO_IDS, SCIENCE_IDS, node_role
 from src.frontend.replay import ReplayData, node_label
 
 
@@ -128,13 +128,13 @@ def build_orbital_figure(
 
     if show_trails:
         start_index = replay.frame_index_at(max(0.0, time_s - trail_seconds))
-        for node_id in [SCIENCE_ID, *LEO_IDS, *GEO_IDS]:
+        for node_id in [*SCIENCE_IDS, *LEO_IDS, *GEO_IDS]:
             trail = np.stack([replay.snapshots[i].positions[node_id] for i in range(start_index, frame_index + 1)])
             fig.add_trace(
                 go.Scatter3d(
                     x=trail[:, 0], y=trail[:, 1], z=trail[:, 2],
                     mode="lines",
-                    line={"color": ROLE_COLOURS[node_role(node_id)], "width": 3 if node_id == SCIENCE_ID else 1},
+                    line={"color": ROLE_COLOURS[node_role(node_id)], "width": 3 if node_id in SCIENCE_IDS else 1},
                     opacity=0.25,
                     hoverinfo="skip",
                     showlegend=False,
@@ -179,8 +179,8 @@ def build_orbital_figure(
         )
 
     # Node markers by role.
-    node_ids = [SCIENCE_ID, *LEO_IDS, *GEO_IDS]
-    for role, ids in [("SCIENCE", [SCIENCE_ID]), ("LEO", list(LEO_IDS)), ("GEO", list(GEO_IDS))]:
+    node_ids = [*SCIENCE_IDS, *LEO_IDS, *GEO_IDS]
+    for role, ids in [("SCIENCE", list(SCIENCE_IDS)), ("LEO", list(LEO_IDS)), ("GEO", list(GEO_IDS))]:
         xyz = np.stack([positions[node_id] for node_id in ids])
         labels = [node_label(node_id, replay.config) for node_id in ids]
         fig.add_trace(
@@ -227,11 +227,12 @@ def build_orbital_figure(
                 textposition="top center",
                 marker={
                     "size": [8 + 4 * packet.priority for packet in packets],
-                    "color": [FALLBACK if packet.fallback_used else (RL if packet.policy_used == "rl" else PACKET_URGENT if packet.priority >= 0.8 else PACKET) for packet in packets],
+                    "color": [FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL) for packet in packets],
                     "symbol": "diamond",
                     "line": {"color": PANEL, "width": 1},
                 },
-                hovertemplate="bundle=%{text}<extra></extra>",
+                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or ""] for packet in packets],
+                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<extra></extra>",
                 name="Packets",
                 showlegend=False,
             )
@@ -253,7 +254,7 @@ def build_orbital_figure(
             "zaxis_range": [-limit, limit],
         },
         title={
-            "text": f"Orbital view · t = {time_s:,.0f}s · policy = {replay.current_policy_label(time_s)}",
+            "text": f"Orbital view · t = {time_s:,.0f}s · requested = {replay.requested_algorithm_at(time_s)} · actual = {replay.actual_algorithm_at(time_s)}",
             "x": 0.02,
             "font": {"size": 16, "color": TEXT},
         },
@@ -299,7 +300,7 @@ def build_topology_figure(
         )
 
     grouped = {
-        "SCIENCE": [SCIENCE_ID],
+        "SCIENCE": list(SCIENCE_IDS),
         "LEO": list(LEO_IDS),
         "GEO": list(GEO_IDS),
         "GROUND": list(GROUND_IDS),
@@ -333,11 +334,12 @@ def build_topology_figure(
                 textposition="top center",
                 marker={
                     "size": [11 + 8 * packet.priority for packet in packets],
-                    "color": [FALLBACK if packet.fallback_used else (RL if packet.policy_used == "rl" else PACKET_URGENT if packet.priority >= 0.8 else PACKET) for packet in packets],
+                    "color": [FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL) for packet in packets],
                     "symbol": "diamond",
                     "line": {"color": PANEL, "width": 1},
                 },
-                hovertemplate="bundle=%{text}<extra></extra>",
+                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or ""] for packet in packets],
+                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<extra></extra>",
                 showlegend=False,
             )
         )
@@ -349,7 +351,7 @@ def build_topology_figure(
         xaxis={"visible": False, "range": [-2.8, 2.8]},
         yaxis={"visible": False, "range": [-2.8, 2.8], "scaleanchor": "x", "scaleratio": 1},
         title={
-            "text": f"Network topology · {len(replay.active_contacts(time_s))} active links · {len(packets)} packets in flight",
+            "text": f"Network topology · requested={replay.requested_algorithm_at(time_s)} · actual={replay.actual_algorithm_at(time_s)} · {len(replay.active_contacts(time_s))} links",
             "x": 0.02,
             "font": {"size": 16, "color": TEXT},
         },

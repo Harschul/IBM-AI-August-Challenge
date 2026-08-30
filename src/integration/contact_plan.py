@@ -17,6 +17,7 @@ from src.models.contact import Contact, ContactPlan
 
 from .config import (
     GROUND_IDS,
+    SCIENCE_IDS,
     NUM_NODES,
     PrototypeConfig,
     link_profile_name,
@@ -210,7 +211,7 @@ def build_contact_plan(
                 )
                 if dst in GROUND_IDS:
                     ground_contacts += 1
-                    if src == 0:
+                    if src in SCIENCE_IDS:
                         direct_to_ground += 1
                 else:
                     satellite_contacts += 1

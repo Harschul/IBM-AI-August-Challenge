@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def write_results(out_dir: Path, rows, summary: dict):
         writer = csv.DictWriter(
             fh,
             fieldnames=[
-                "bundle_id", "policy", "delivered", "on_time", "arrival_s",
+                "bundle_id", "source_id", "policy", "delivered", "on_time", "arrival_s",
                 "latency_s", "hops", "path", "fallbacks", "reason",
                 "science_priority",
             ],
@@ -86,6 +87,11 @@ def main():
     satellites, snapshots = simulate_snapshots(config)
     plan, diagnostics = build_contact_plan(snapshots, config)
     bundles = generate_bundles(config, count=args.bundles, seed=args.traffic_seed)
+
+    print("Science bundle sources")
+    print("----------------------")
+    for source_id, count in sorted(Counter(bundle.source_id for bundle in bundles).items()):
+        print(f"SCI-{source_id}                    {count}")
 
     print("Physical contact plan")
     print("---------------------")

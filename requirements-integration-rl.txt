@@ -1,0 +1,3 @@
+# Optional RL execution support for the integration CLI.
+-r requirements-integration.txt
+-r RL/rl_env_v0/requirements.txt
