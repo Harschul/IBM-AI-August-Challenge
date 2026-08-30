@@ -23,3 +23,8 @@ networkx>=3.0
 # For type checking / dataclasses (already in Python 3.7+)
 # but we include it for safety
 typing-extensions>=4.5.0
+
+# Test runner. Previously only in the root requirements.txt, which cannot
+# install on Python < 3.11 -- so on an older demo machine the test suite
+# silently had no way to run.
+pytest>=7.0.0
