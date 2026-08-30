@@ -225,7 +225,19 @@ the SCI->ground pair.
                      for x, y in zip(per_replicate[a], per_replicate[b])]
             mean = statistics.fmean(diffs)
             se = statistics.stdev(diffs) / math.sqrt(len(diffs)) if len(diffs) > 1 else 0.0
-            t = mean / se if se else float("inf")
+
+            # se == 0 means every replicate gave the same difference. If that
+            # difference is also zero the architectures are indistinguishable,
+            # not infinitely significant -- guarding only on `se` reported
+            # "+0.000 +/- 0.000  t=+inf  SIGNIFICANT", which is nonsense.
+            if se == 0.0:
+                verdict = ("identical in every replicate" if abs(mean) < 1e-9
+                           else "identical difference in every replicate")
+                print("  %-14s vs %-14s  %+.3f ± %.3f   t=    -   %s"
+                      % (a, b, mean, se, verdict))
+                continue
+
+            t = mean / se
             print("  %-14s vs %-14s  %+.3f ± %.3f   t=%+5.2f   %s"
                   % (a, b, mean, se, t,
                      "SIGNIFICANT" if abs(t) > crit else "not distinguishable"))
