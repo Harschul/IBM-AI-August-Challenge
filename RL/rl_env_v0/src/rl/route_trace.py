@@ -87,8 +87,22 @@ def candidate_table(env, mask):
         if not reachable:
             continue
 
-        actual = env._best_contact_to(dest)
-        best = min(reachable, key=lambda c: _describe(env, c)["arrive"])
+        # Use the contact step() will really execute. Before #8 that was
+        # _best_contact_to (earliest DEPARTURE, which could pick a slow window);
+        # since #8 it is _feasible_contact_to (earliest ARRIVAL among contacts
+        # the transfer can actually complete in). Reading the old helper here
+        # made the trace report arrivals the environment would never produce.
+        actual = (env._feasible_contact_to(dest)
+                  if hasattr(env, "_feasible_contact_to")
+                  else env._best_contact_to(dest))
+        if actual is None:
+            continue
+        # Compare only against contacts the transfer can actually COMPLETE in.
+        # Comparing against every reachable contact flagged "a faster option
+        # existed" when that option was a window too short to carry the bundle
+        # -- not an option at all. Post-#8 this correctly never fires.
+        usable = [c for c in reachable if _describe(env, c)["fits"]]
+        best = min(usable or reachable, key=lambda c: _describe(env, c)["arrive"])
 
         row = {"dest": dest}
         row.update(_describe(env, actual))
