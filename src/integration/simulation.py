@@ -12,12 +12,13 @@ from src.routing.temporal_baseline import earliest_arrival
 
 from .capacity import CapacityLedger
 from .config import GROUND_IDS, PrototypeConfig
-from .rl_bridge import action_mask, best_feasible_contact, build_observation
+from .rl_bridge import best_feasible_contact, build_observation
 
 
 @dataclass(frozen=True)
 class DeliveryResult:
     bundle_id: str
+    source_id: int
     policy: str
     delivered: bool
     on_time: bool
@@ -86,6 +87,7 @@ class IntegratedSimulator:
                 results.append(
                     DeliveryResult(
                         bundle_id=bundle.bundle_id,
+                        source_id=bundle.source_id,
                         policy="baseline",
                         delivered=False,
                         on_time=False,
@@ -107,6 +109,7 @@ class IntegratedSimulator:
             results.append(
                 DeliveryResult(
                     bundle_id=bundle.bundle_id,
+                    source_id=bundle.source_id,
                     policy="baseline",
                     delivered=True,
                     on_time=on_time,
@@ -215,6 +218,7 @@ class IntegratedSimulator:
             results.append(
                 DeliveryResult(
                     bundle_id=bundle.bundle_id,
+                    source_id=bundle.source_id,
                     policy="rl_fallback",
                     delivered=delivered,
                     on_time=on_time,

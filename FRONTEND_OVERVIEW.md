@@ -1,41 +1,44 @@
-# Frontend bundle overview
+# Integrated frontend v2
 
-This bundle adds a cohesive frontend for the integrated demo with the following
-focus areas:
+The frontend keeps the minimalist orbital-render style while making the routing
+state auditable rather than decorative.
 
-- **3D orbital render** of the physical constellation
-- **2D network topology graph** shown side-by-side with the orbital scene
-- **Clearly rendered links** for both inter-satellite and satellite-ground contacts
-- **Animated packet transfer** markers that move along the active route
-- **Mid-run switching** between **temporal routing** and **RL routing**
-- **Minimalist visual design** aligned to the repository's earlier video renders
+## Views
 
-## Main files
+- synchronized **3D orbital constellation**
+- synchronized **2D network topology**
+- active satellite and ground links
+- moving data-bundle markers
+- selected route highlighting
+- timeline scrub / step / playback controls
 
-- `src/frontend/app.py` — Streamlit UI and interaction controls
-- `src/frontend/replay.py` — replay generation, packet hop playback, policy switching
-- `src/frontend/figures.py` — Plotly figure builders for orbital and topology views
-- `src/frontend/layout.py` — fixed 2D topology layout for the 14-node scenario
-- `src/frontend/theme.py` — shared style constants
-- `run_frontend.py` — one-command launcher
+## Multi-source science traffic
 
-## Included quality-of-life features
+The 14-node interface now contains three science spacecraft. New bundles are
+randomly (but reproducibly) assigned to SCI-0, SCI-1 or SCI-2.
 
-- Bundle selector to highlight one science bundle's full route
-- Timeline scrubber plus step/play controls
-- Delivery metrics and fallback counts
-- Event log table for demo/debugging
-- Download buttons for bundle table, event log and summary JSON
-- Graceful fallback when an RL checkpoint is not available
+## Routing transparency
 
-## How policy switching works
+The operator can request temporal or RL routing before and after a selected
+switch time. For every hop the replay separately stores the requested algorithm
+and the actual algorithm that chose the next hop.
 
-The replay accepts:
+Examples:
 
-- a **policy before switch** (`temporal` or `rl`)
-- a **policy after switch** (`temporal` or `rl`)
-- an optional **switch time in seconds**
+```text
+requested=temporal  actual=temporal  fallback=false
+requested=rl        actual=rl        fallback=false
+requested=rl        actual=temporal  fallback=true
+```
 
-At each routing decision the replay engine chooses the active policy from those
-controls. This means a bundle can begin under RL and complete under the temporal
-router, or vice versa.
+The last case is colored and labeled as fallback throughout the UI. It is never
+counted as executed RL.
+
+## Main implementation files
+
+- `src/frontend/app.py` — UI and metrics
+- `src/frontend/replay.py` — routing replay and requested/actual audit state
+- `src/frontend/figures.py` — synchronized Plotly views
+- `src/frontend/layout.py` — fixed 14-node topology layout
+- `src/integration/scenario.py` — 3 science / 6 LEO / 2 GEO physical scenario
+- `src/integration/traffic.py` — multi-source bundle generation

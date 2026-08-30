@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping
 
 
-SCIENCE_ID = 0
-LEO_IDS = tuple(range(1, 9))
+SCIENCE_IDS = tuple(range(0, 3))
+LEO_IDS = tuple(range(3, 9))
 GEO_IDS = tuple(range(9, 11))
 GROUND_IDS = tuple(range(11, 14))
 NUM_NODES = 14
@@ -86,6 +86,16 @@ def load_config(path: str | Path = "config/prototype.yaml") -> PrototypeConfig:
     links_raw = _need(payload, "links")
     runtime_raw = _need(payload, "runtime_defaults")
 
+    science_cfg = _need(nodes, "science")
+    leo_cfg = _need(nodes, "leo")
+    geo_cfg = _need(nodes, "geo")
+    if int(science_cfg.get("count", len(SCIENCE_IDS))) != len(SCIENCE_IDS):
+        raise ValueError(f"science.count must be {len(SCIENCE_IDS)} for the fixed 14-node interface")
+    if int(leo_cfg.get("count", len(LEO_IDS))) != len(LEO_IDS):
+        raise ValueError(f"leo.count must be {len(LEO_IDS)} for the fixed 14-node interface")
+    if int(geo_cfg.get("count", len(GEO_IDS))) != len(GEO_IDS):
+        raise ValueError(f"geo.count must be {len(GEO_IDS)} for the fixed 14-node interface")
+
     ground = tuple(
         GroundStation(
             node_id=int(item["id"]),
@@ -145,7 +155,7 @@ def load_config(path: str | Path = "config/prototype.yaml") -> PrototypeConfig:
 
 
 def node_role(node_id: int) -> str:
-    if node_id == SCIENCE_ID:
+    if node_id in SCIENCE_IDS:
         return "SCIENCE"
     if node_id in LEO_IDS:
         return "LEO"

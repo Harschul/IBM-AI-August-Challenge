@@ -1,7 +1,11 @@
 """Use the existing 14-action MaskablePPO checkpoints on canonical contacts.
 
 The trained policy's frozen interface is preserved: 4 bundle features plus
-14 candidates x 11 features = 158 floats, and a 14-entry action mask.
+14 candidates x 11 features = 158 floats, and a 14-entry action mask. The
+physical scenario now uses three science sources while keeping 14 total IDs, so
+existing checkpoints remain shape-compatible. Their training distribution was
+single-source, so multi-source results should be treated as transfer evaluation
+until the policy is retrained on the new source distribution.
 No import from `RL/rl_env_v0/src` is required, avoiding the repository's two
 competing packages named `src`.
 """

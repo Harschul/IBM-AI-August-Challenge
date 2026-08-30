@@ -1,28 +1,46 @@
-name: frontend-integration
+name: frontend
 
 on:
   push:
-    branches: [ main, integration/**, feature/** ]
+    branches:
+      - main
+      - 'integration/**'
+      - 'feature/**'
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-frontend.txt
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          if [ -f requirements-integration.txt ]; then pip install -r requirements-integration.txt; fi
-          pip install -r requirements-frontend.txt
+          python -m pip install -r requirements-frontend.txt
 
-      - name: Run tests
+      - name: Dependency smoke test
         run: |
-          python -m pytest tests/test_temporal_router.py tests/test_integration.py tests/test_frontend_bundle.py -q
+          python -c "import numpy, pandas, plotly, streamlit, pytest; print('frontend deps OK')"
+
+      - name: Compile frontend
+        run: |
+          python -m py_compile src/frontend/*.py run_frontend.py
+
+      - name: Run integration and frontend tests
+        run: |
+          python -m pytest \
+            tests/test_temporal_router.py \
+            tests/test_integration.py \
+            tests/test_frontend_bundle.py \
+            -q

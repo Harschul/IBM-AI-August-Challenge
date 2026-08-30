@@ -1,30 +1,31 @@
 """Replay generation for the integrated orbital/network frontend.
 
-This module precomputes one coherent routing run, then exposes synchronized 3D
-and 2D frame state for the UI.  The same underlying physical contact plan drives
-both the orbital view and the topology graph.
+The replay records both the routing algorithm the operator *requested* and the
+algorithm that *actually* selected every hop.  This is intentionally explicit:
+an RL request that falls back to the temporal router is displayed and exported
+as temporal execution, never as RL execution.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from statistics import fmean
-from typing import Literal, Sequence
+from typing import Literal
 
 import numpy as np
 
 from src.integration.capacity import CapacityLedger
-from src.integration.config import GEO_IDS, GROUND_IDS, LEO_IDS, NUM_NODES, SCIENCE_ID, PrototypeConfig, load_config
+from src.integration.config import GEO_IDS, GROUND_IDS, LEO_IDS, SCIENCE_IDS, PrototypeConfig, load_config
 from src.integration.contact_plan import build_contact_plan, ground_position
 from src.integration.rl_bridge import MaskablePPOPolicy, best_feasible_contact, build_observation
-from src.integration.scenario import build_satellites, simulate_snapshots
+from src.integration.scenario import simulate_snapshots
 from src.integration.traffic import generate_bundles
 from src.models.bundle import DataBundle
 from src.models.contact import Contact, ContactPlan
 from src.routing.temporal_baseline import earliest_arrival
 
-PolicyName = Literal["temporal", "rl"]
+AlgorithmName = Literal["temporal", "rl"]
 
 
 @dataclass(frozen=True)
@@ -36,8 +37,10 @@ class PacketHop:
     depart_s: float
     transfer_end_s: float
     arrival_s: float
-    policy_used: str
+    requested_algorithm: AlgorithmName
+    actual_algorithm: AlgorithmName
     fallback_used: bool
+    fallback_reason: str | None
     data_rate_bps: float
     priority: float
     contact_start_s: float
@@ -47,6 +50,7 @@ class PacketHop:
 @dataclass(frozen=True)
 class BundlePlayback:
     bundle_id: str
+    source_id: int
     created_s: float
     size_bytes: int
     science_priority: float
@@ -60,6 +64,14 @@ class BundlePlayback:
     fallbacks: int
     hops: tuple[PacketHop, ...]
 
+    @property
+    def requested_algorithms(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(hop.requested_algorithm for hop in self.hops))
+
+    @property
+    def actual_algorithms(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(hop.actual_algorithm for hop in self.hops))
+
 
 @dataclass(frozen=True)
 class ActivePacket:
@@ -69,9 +81,11 @@ class ActivePacket:
     xyz: tuple[float, float, float]
     topology_xy: tuple[float, float]
     progress: float
-    policy_used: str
+    requested_algorithm: AlgorithmName
+    actual_algorithm: AlgorithmName
     priority: float
     fallback_used: bool
+    fallback_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -85,6 +99,9 @@ class ReplaySummary:
     delivery_ratio: float
     deadline_success: float
     priority_weighted_timely: float
+    rl_requested_hops: int
+    rl_executed_hops: int
+    temporal_executed_hops: int
 
 
 @dataclass(frozen=True)
@@ -95,8 +112,8 @@ class ReplayData:
     plan: ContactPlan
     diagnostics: object
     bundle_runs: tuple[BundlePlayback, ...]
-    before_policy: PolicyName
-    after_policy: PolicyName
+    before_policy: AlgorithmName
+    after_policy: AlgorithmName
     switch_time_s: float | None
     selected_bundle_id: str | None = None
     model_loaded: bool = False
@@ -156,18 +173,45 @@ class ReplayData:
                             xyz=(float(xyz[0]), float(xyz[1]), float(xyz[2])),
                             topology_xy=topo_xy,
                             progress=alpha,
-                            policy_used=hop.policy_used,
+                            requested_algorithm=hop.requested_algorithm,
+                            actual_algorithm=hop.actual_algorithm,
                             priority=hop.priority,
                             fallback_used=hop.fallback_used,
+                            fallback_reason=hop.fallback_reason,
                         )
                     )
                     break
         return packets
 
-    def current_policy_label(self, time_s: float) -> str:
+    def requested_algorithm_at(self, time_s: float) -> AlgorithmName:
         if self.switch_time_s is None:
             return self.before_policy
         return self.before_policy if float(time_s) < self.switch_time_s else self.after_policy
+
+    # Backward-compatible alias for old frontend callers. It is explicitly the
+    # requested policy, not the algorithm that actually executed.
+    def current_policy_label(self, time_s: float) -> str:
+        return self.requested_algorithm_at(time_s)
+
+    def actual_algorithm_at(self, time_s: float) -> str:
+        """Report actual execution at the current replay point.
+
+        Active transfers take precedence.  Between transfers, the most recent
+        routing decision is reported.  Multiple simultaneous transfers can
+        legitimately use different algorithms, in which case both are shown.
+        """
+        active = self.active_packets(time_s)
+        if active:
+            values = sorted({packet.actual_algorithm for packet in active})
+            return " + ".join(values)
+
+        latest: PacketHop | None = None
+        t = float(time_s)
+        for bundle in self.bundle_runs:
+            for hop in bundle.hops:
+                if hop.depart_s <= t and (latest is None or hop.depart_s > latest.depart_s):
+                    latest = hop
+        return latest.actual_algorithm if latest is not None else "none"
 
     def selected_bundle(self, bundle_id: str | None = None) -> BundlePlayback | None:
         wanted = bundle_id or self.selected_bundle_id
@@ -182,6 +226,7 @@ class ReplayData:
         rows = self.bundle_runs
         delivered = [r for r in rows if r.delivered]
         on_time = [r for r in rows if r.on_time]
+        all_hops = [hop for row in rows for hop in row.hops]
         total_priority = sum(r.science_priority for r in rows)
         on_time_priority = sum(r.science_priority for r in rows if r.on_time)
         return ReplaySummary(
@@ -190,10 +235,13 @@ class ReplayData:
             on_time=len(on_time),
             mean_latency_s=(fmean(r.arrival_s - r.created_s for r in delivered) if delivered else None),
             mean_hops=fmean(len(r.hops) for r in rows) if rows else 0.0,
-            total_fallbacks=sum(r.fallbacks for r in rows),
+            total_fallbacks=sum(1 for hop in all_hops if hop.fallback_used),
             delivery_ratio=(len(delivered) / len(rows) if rows else 0.0),
             deadline_success=(len(on_time) / len(rows) if rows else 0.0),
             priority_weighted_timely=(on_time_priority / total_priority if total_priority else 0.0),
+            rl_requested_hops=sum(1 for hop in all_hops if hop.requested_algorithm == "rl"),
+            rl_executed_hops=sum(1 for hop in all_hops if hop.actual_algorithm == "rl"),
+            temporal_executed_hops=sum(1 for hop in all_hops if hop.actual_algorithm == "temporal"),
         )
 
     def event_rows(self) -> list[dict[str, object]]:
@@ -204,7 +252,10 @@ class ReplayData:
                     "time_s": round(bundle.created_s, 2),
                     "bundle_id": bundle.bundle_id,
                     "event": "created",
-                    "detail": f"{bundle.data_type} priority={bundle.science_priority:.2f}",
+                    "detail": f"source={node_label(bundle.source_id, self.config)} {bundle.data_type} priority={bundle.science_priority:.2f}",
+                    "requested_algorithm": "",
+                    "actual_algorithm": "",
+                    "fallback": False,
                 }
             )
             for hop in bundle.hops:
@@ -213,7 +264,10 @@ class ReplayData:
                         "time_s": round(hop.depart_s, 2),
                         "bundle_id": bundle.bundle_id,
                         "event": "depart",
-                        "detail": f"{hop.source_id} -> {hop.destination_id} via {hop.policy_used}",
+                        "detail": f"{node_label(hop.source_id, self.config)} -> {node_label(hop.destination_id, self.config)}",
+                        "requested_algorithm": hop.requested_algorithm,
+                        "actual_algorithm": hop.actual_algorithm,
+                        "fallback": hop.fallback_used,
                     }
                 )
                 rows.append(
@@ -221,7 +275,10 @@ class ReplayData:
                         "time_s": round(hop.arrival_s, 2),
                         "bundle_id": bundle.bundle_id,
                         "event": "arrive",
-                        "detail": f"at node {hop.destination_id}",
+                        "detail": f"at {node_label(hop.destination_id, self.config)}",
+                        "requested_algorithm": hop.requested_algorithm,
+                        "actual_algorithm": hop.actual_algorithm,
+                        "fallback": hop.fallback_used,
                     }
                 )
             rows.append(
@@ -230,6 +287,9 @@ class ReplayData:
                     "bundle_id": bundle.bundle_id,
                     "event": bundle.reason,
                     "detail": f"delivered={bundle.delivered} on_time={bundle.on_time}",
+                    "requested_algorithm": "",
+                    "actual_algorithm": "",
+                    "fallback": False,
                 }
             )
         rows.sort(key=lambda row: (float(row["time_s"]), str(row["bundle_id"]), str(row["event"])))
@@ -237,8 +297,8 @@ class ReplayData:
 
 
 def node_label(node_id: int, config: PrototypeConfig) -> str:
-    if node_id == SCIENCE_ID:
-        return "SCI-0"
+    if node_id in SCIENCE_IDS:
+        return f"SCI-{SCIENCE_IDS.index(node_id)}"
     if node_id in LEO_IDS:
         return f"LEO-{node_id}"
     if node_id in GEO_IDS:
@@ -262,7 +322,7 @@ def _clone_bundle(bundle: DataBundle) -> DataBundle:
     )
 
 
-def _baseline_route(ledger: CapacityLedger, bundle: DataBundle, now_s: float) -> object | None:
+def _baseline_route(ledger: CapacityLedger, bundle: DataBundle, now_s: float):
     plan = ledger.planning_plan()
     route = earliest_arrival(
         plan,
@@ -284,38 +344,58 @@ def _baseline_route(ledger: CapacityLedger, bundle: DataBundle, now_s: float) ->
     return route
 
 
+def _temporal_action(ledger: CapacityLedger, bundle: DataBundle, now_s: float) -> int | None:
+    route = _baseline_route(ledger, bundle, now_s)
+    if route is None or not route.hops:
+        return None
+    return int(route.next_hop())
+
+
 def _choose_action(
-    policy_name: PolicyName,
+    requested_algorithm: AlgorithmName,
     policy: MaskablePPOPolicy | None,
     ledger: CapacityLedger,
     bundle: DataBundle,
     now_s: float,
     config: PrototypeConfig,
-) -> tuple[int | None, bool, str]:
-    if policy_name == "rl" and policy is not None:
-        planning = ledger.planning_plan()
-        obs, mask = build_observation(planning, bundle, now_s, config)
-        if mask.any():
-            try:
-                candidate = int(policy.choose(obs, mask))
-                if 0 <= candidate < len(mask) and mask[candidate]:
-                    return candidate, False, "rl"
-            except Exception:
-                pass
+) -> tuple[int | None, AlgorithmName, str | None]:
+    """Return action, actual algorithm, and optional fallback reason."""
+    if requested_algorithm == "temporal":
+        return _temporal_action(ledger, bundle, now_s), "temporal", None
 
-    route = _baseline_route(ledger, bundle, now_s)
-    if route is None or not route.hops:
-        return None, True, "temporal"
-    return int(route.next_hop()), policy_name == "rl", "temporal"
+    if policy is None:
+        return _temporal_action(ledger, bundle, now_s), "temporal", "rl_model_unavailable"
+
+    planning = ledger.planning_plan()
+    obs, mask = build_observation(planning, bundle, now_s, config)
+    if not mask.any():
+        return _temporal_action(ledger, bundle, now_s), "temporal", "rl_no_legal_action"
+
+    try:
+        candidate = int(policy.choose(obs, mask))
+    except Exception:
+        return _temporal_action(ledger, bundle, now_s), "temporal", "rl_inference_error"
+
+    if not (0 <= candidate < len(mask) and mask[candidate]):
+        return _temporal_action(ledger, bundle, now_s), "temporal", "rl_invalid_action"
+    return candidate, "rl", None
 
 
-def _policy_for_time(time_s: float, before_policy: PolicyName, after_policy: PolicyName, switch_time_s: float | None) -> PolicyName:
+def _policy_for_time(
+    time_s: float,
+    before_policy: AlgorithmName,
+    after_policy: AlgorithmName,
+    switch_time_s: float | None,
+) -> AlgorithmName:
     if switch_time_s is None:
         return before_policy
     return before_policy if float(time_s) < switch_time_s else after_policy
 
 
-def _load_rl_policy(model_path: str | Path | None, allow_missing_model: bool) -> tuple[MaskablePPOPolicy | None, bool, str | None]:
+def _load_rl_policy(
+    model_path: str | Path | None,
+    allow_missing_model: bool,
+) -> tuple[MaskablePPOPolicy | None, bool, str | None]:
     if not model_path:
         return None, False, None
     path = Path(model_path)
@@ -323,16 +403,65 @@ def _load_rl_policy(model_path: str | Path | None, allow_missing_model: bool) ->
         if allow_missing_model:
             return None, False, str(path)
         raise FileNotFoundError(path)
-    return MaskablePPOPolicy(path), True, str(path)
+    try:
+        return MaskablePPOPolicy(path), True, str(path)
+    except Exception:
+        if allow_missing_model:
+            return None, False, str(path)
+        raise
 
+
+
+def _resolve_hop_decision(
+    requested: AlgorithmName,
+    policy: MaskablePPOPolicy | None,
+    ledger: CapacityLedger,
+    bundle: DataBundle,
+    now_s: float,
+    config: PrototypeConfig,
+) -> tuple[int | None, Contact | None, AlgorithmName, str | None]:
+    """Choose an action and bind it to the contact that would be committed."""
+    action, actual, fallback_reason = _choose_action(
+        requested, policy, ledger, bundle, now_s, config
+    )
+    if action is None:
+        return None, None, actual, fallback_reason
+
+    contact = best_feasible_contact(
+        ledger.planning_plan(),
+        bundle.current_holder,
+        action,
+        now_s,
+        bundle.remaining_bytes,
+    )
+    if contact is not None:
+        return action, contact, actual, fallback_reason
+
+    # Replan deterministically at commit time. If the requested algorithm was
+    # RL this becomes an explicit RL -> temporal fallback.
+    action = _temporal_action(ledger, bundle, now_s)
+    actual = "temporal"
+    fallback_reason = (
+        "rl_contact_commit_failed" if requested == "rl" else "temporal_contact_replan"
+    )
+    if action is None:
+        return None, None, actual, fallback_reason
+    contact = best_feasible_contact(
+        ledger.planning_plan(),
+        bundle.current_holder,
+        action,
+        now_s,
+        bundle.remaining_bytes,
+    )
+    return action, contact, actual, fallback_reason
 
 def build_replay(
     *,
     config_path: str | Path = "config/prototype.yaml",
     bundles: int = 24,
     traffic_seed: int = 20260830,
-    before_policy: PolicyName = "temporal",
-    after_policy: PolicyName = "temporal",
+    before_policy: AlgorithmName = "temporal",
+    after_policy: AlgorithmName = "temporal",
     switch_time_s: float | None = None,
     model_path: str | Path | None = "RL/rl_env_v0/models/rl_agent_seed_42.zip",
     allow_missing_model: bool = True,
@@ -352,59 +481,45 @@ def build_replay(
         now_s = bundle.created_s
         path = [bundle.source_id]
         hop_records: list[PacketHop] = []
-        fallbacks = 0
         reason = "no_route"
 
         for hop_index in range(1, 9):
             if bundle.current_holder in GROUND_IDS:
                 reason = "delivered"
                 break
-            active_policy = _policy_for_time(now_s, before_policy, after_policy, switch_time_s)
-            action, fallback_used, policy_used = _choose_action(
-                active_policy,
-                rl_policy,
-                ledger,
-                bundle,
-                now_s,
-                config,
+
+            requested = _policy_for_time(now_s, before_policy, after_policy, switch_time_s)
+            action, contact, actual, fallback_reason = _resolve_hop_decision(
+                requested, rl_policy, ledger, bundle, now_s, config
             )
-            if fallback_used:
-                fallbacks += 1
-            if action is None:
-                reason = "no_route"
+            if action is None or contact is None:
+                reason = "no_route" if action is None else "commit_race"
                 break
 
-            contact = best_feasible_contact(
-                ledger.planning_plan(),
-                bundle.current_holder,
-                action,
-                now_s,
-                bundle.remaining_bytes,
-            )
-            if contact is None:
-                fallbacks += 1
-                route = _baseline_route(ledger, bundle, now_s)
-                if route is None or not route.hops:
-                    reason = "commit_race"
-                    break
-                action = int(route.next_hop())
-                contact = best_feasible_contact(
-                    ledger.planning_plan(),
-                    bundle.current_holder,
-                    action,
-                    now_s,
-                    bundle.remaining_bytes,
-                )
-                if contact is None:
-                    reason = "commit_race"
-                    break
-                fallback_used = True
-                policy_used = "temporal"
-
             depart_s = max(now_s, contact.start_s)
+
+            # If the bundle is waiting for a future contact and the operator's
+            # switch happens during that wait, discard the uncommitted choice
+            # and make a fresh routing decision at the switch instant. In-flight
+            # transfers are not interrupted.
+            if (
+                switch_time_s is not None
+                and before_policy != after_policy
+                and now_s < switch_time_s <= depart_s
+            ):
+                now_s = float(switch_time_s)
+                requested = after_policy
+                action, contact, actual, fallback_reason = _resolve_hop_decision(
+                    requested, rl_policy, ledger, bundle, now_s, config
+                )
+                if action is None or contact is None:
+                    reason = "no_route" if action is None else "commit_race"
+                    break
+                depart_s = max(now_s, contact.start_s)
             transfer_end_s = depart_s + contact.transmission_time_s(bundle.remaining_bytes)
             arrival_s = transfer_end_s + contact.propagation_delay_s
             ledger.reserve_contact(contact, bundle.remaining_bytes)
+            fallback_used = requested != actual
             hop_records.append(
                 PacketHop(
                     bundle_id=bundle.bundle_id,
@@ -414,8 +529,10 @@ def build_replay(
                     depart_s=depart_s,
                     transfer_end_s=transfer_end_s,
                     arrival_s=arrival_s,
-                    policy_used=policy_used,
+                    requested_algorithm=requested,
+                    actual_algorithm=actual,
                     fallback_used=fallback_used,
+                    fallback_reason=fallback_reason if fallback_used else None,
                     data_rate_bps=contact.data_rate_bps,
                     priority=bundle.science_priority,
                     contact_start_s=contact.start_s,
@@ -447,6 +564,7 @@ def build_replay(
         results.append(
             BundlePlayback(
                 bundle_id=bundle.bundle_id,
+                source_id=bundle.source_id,
                 created_s=bundle.created_s,
                 size_bytes=bundle.size_bytes,
                 science_priority=bundle.science_priority,
@@ -457,7 +575,7 @@ def build_replay(
                 on_time=on_time,
                 arrival_s=arrival,
                 reason=reason,
-                fallbacks=fallbacks,
+                fallbacks=sum(1 for hop in hop_records if hop.fallback_used),
                 hops=tuple(hop_records),
             )
         )

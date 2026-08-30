@@ -1,3 +1,6 @@
-# Install from the repository root.
--r requirements.txt
--r RL/rl_env_v0/requirements.txt
+# Minimal dependencies required by src/integration and integration tests.
+# Deliberately avoids the root requirements.txt because its NumPy 2.5.2 pin
+# requires Python 3.12+, while the integration layer itself works on 3.11.
+
+numpy>=1.26,<3
+pytest>=8,<10

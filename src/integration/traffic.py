@@ -6,7 +6,7 @@ import random
 
 from src.models.bundle import DataBundle
 
-from .config import SCIENCE_ID, PrototypeConfig
+from .config import SCIENCE_IDS, PrototypeConfig
 
 
 def generate_bundles(
@@ -14,6 +14,11 @@ def generate_bundles(
     count: int = 100,
     seed: int | None = None,
 ) -> list[DataBundle]:
+    """Generate bundles and randomly distribute their origins across SCIENCE_IDS.
+
+    A fixed seed still gives identical source selection and traffic to every
+    policy, so baseline/RL comparisons remain paired and reproducible.
+    """
     if count < 1:
         raise ValueError("count must be positive")
 
@@ -26,6 +31,7 @@ def generate_bundles(
 
     bundles: list[DataBundle] = []
     for index in range(count):
+        source_id = int(rng.choice(SCIENCE_IDS))
         created = rng.uniform(0.0, creation_horizon)
         urgent = rng.random() < urgent_fraction
         if urgent:
@@ -41,7 +47,7 @@ def generate_bundles(
         bundles.append(
             DataBundle(
                 bundle_id=f"B{index:04d}",
-                source_id=SCIENCE_ID,
+                source_id=source_id,
                 size_bytes=size_bytes,
                 created_s=created,
                 science_priority=priority,
