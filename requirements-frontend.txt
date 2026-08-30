@@ -1,0 +1,7 @@
+# Frontend dependencies for the integrated orbital/network UI.
+# Install this on top of the repo's normal dependencies (and the prior
+# requirements-integration.txt bundle if you applied that one separately).
+
+streamlit>=1.37.0
+plotly>=6.0.0
+pandas>=2.0.0
