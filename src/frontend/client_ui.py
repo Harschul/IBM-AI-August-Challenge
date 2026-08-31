@@ -244,17 +244,24 @@ button,input,select{font:inherit}
 .metric:last-child{border-right:0}
 .ml{font-size:9px;color:#6d7e96;text-transform:uppercase}
 .mv{font-weight:950;font-size:14px;margin-top:2px;font-variant-numeric:tabular-nums}
-.benchmark{border:1px solid var(--line);border-radius:6px;margin:8px 0;background:#fff;overflow:hidden}
-.benchmark-head{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;background:#f7f9fc;border-bottom:1px solid var(--line)}
+.benchmark{border:1px solid var(--line);border-radius:6px;margin:10px 0 12px;background:#fff;overflow:hidden}
+.benchmark>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:#f7f9fc;font-weight:950;font-size:10px;text-transform:uppercase;cursor:pointer;list-style:none}
+.benchmark>summary::-webkit-details-marker{display:none}
+.benchmark>summary::after{content:'▾';color:#718198;font-size:11px;transition:transform .15s ease}
+.benchmark:not([open])>summary::after{transform:rotate(-90deg)}
+.benchmark-summary-note{font-size:9px;color:var(--muted);font-weight:600;text-transform:none;margin-left:auto}
+.benchmark-body{border-top:1px solid var(--line)}
 .benchmark-title{font-weight:950;font-size:10px;text-transform:uppercase}
 .benchmark-note{font-size:9px;color:var(--muted)}
 .benchmark table{font-size:10px}.benchmark th{position:static}.benchmark td,.benchmark th{padding:6px 8px}
+.speed-strip{display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:0;border-bottom:1px solid var(--line)}
+.speed-card{padding:10px 12px;border-right:1px solid #edf1f5}.speed-card:last-child{border-right:0}.speed-kicker{font-size:8px;color:#7a8aa0;text-transform:uppercase;font-weight:900}.speed-value{font-size:18px;font-weight:950;margin-top:3px}.speed-sub{font-size:9px;color:#66778d;margin-top:3px;line-height:1.35}.speed-win{color:#155eef}.latency-delta{color:#155eef}.benchmark-caveat{padding:7px 10px;font-size:9px;color:#6f7f94;background:#fbfcfe;border-top:1px solid #edf1f5;line-height:1.4}
 .alg-temporal{color:#0b6b4f;font-weight:950}.alg-ppo{color:#155eef;font-weight:950}
 .tabs{display:flex;gap:4px;margin:10px 0 8px}
 .tab{border:1px solid var(--line);background:#f7f9fc;color:#42536b;border-radius:4px;padding:7px 12px;cursor:pointer;font-weight:900}
 .tab.active{background:#172033;color:#fff;border-color:#172033}
 .tabpanel{display:none} .tabpanel.active{display:block}
-.grid2{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(360px,.8fr);gap:10px}
+.grid2{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(420px,.9fr);gap:14px}
 .panel{border:1px solid var(--line);border-radius:6px;background:#fff;padding:9px}
 .ph{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
 .pt{font-weight:950;font-size:11px;text-transform:uppercase;color:#26364d}
@@ -304,7 +311,7 @@ summary{cursor:pointer;padding:8px 10px;font-weight:900;color:#33445b}
     <button class="btn" id="metaBtn">Run metadata</button>
   </div>
   <div class="metrics" id="metrics"></div>
-  <div class="benchmark" id="benchmarkPanel"></div>
+  <details class="benchmark" id="benchmarkDetails" open><summary><span>Final benchmark</span><span class="benchmark-summary-note" id="benchmarkSummaryNote"></span></summary><div class="benchmark-body" id="benchmarkPanel"></div></details>
 
   <div class="tabs">
     <button class="tab active" data-tab="network">Live network</button>
@@ -433,7 +440,15 @@ function drawOrbit(){
   for(const n of ordered){const p=displayPos(n.id,simTime),x=cx+p[0]*scale,y=cy-p[1]*scale,front=.35+.65*((p[2]+1)/2);ctx.globalAlpha=front;ctx.fillStyle=roleColor[n.role];ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();if(n.role==='GROUND'){ctx.rect(x-5,y-5,10,10)}else{ctx.arc(x,y,n.role==='SCIENCE'?6:n.role==='GEO'?6:4.5,0,Math.PI*2)}ctx.fill();ctx.stroke();ctx.globalAlpha=1;if(n.role==='SCIENCE'||n.role==='GEO'){ctx.fillStyle='#314158';ctx.font='10px ui-monospace';ctx.fillText(n.label,x+8,y-7)}}
   if(selectedPacket){const b=DATA.bundles.find(x=>x.id===selectedPacket),s=b?stateFor(b,simTime):null;if(s?.current){const a=s.current,end=attemptEnd(a),alpha=Math.max(0,Math.min(1,(simTime-a.depart)/(end-a.depart||1)))*(a.success?1:a.transfer_progress),p0=displayPos(a.holder,simTime),p1=displayPos(a.destination,simTime),x=cx+(p0[0]+alpha*(p1[0]-p0[0]))*scale,y=cy-(p0[1]+alpha*(p1[1]-p0[1]))*scale;ctx.fillStyle='#ffb000';ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill()}}
 }
-function topoXY(id,c){const p=DATA.topology[String(id)],x=(p[0]+2.8)/5.6*c.width,y=(2.8-p[1])/5.6*c.height;return [x,y]}
+const topoValues=Object.values(DATA.topology);
+const topoMinX=Math.min(...topoValues.map(p=>p[0])),topoMaxX=Math.max(...topoValues.map(p=>p[0]));
+const topoMinY=Math.min(...topoValues.map(p=>p[1])),topoMaxY=Math.max(...topoValues.map(p=>p[1]));
+function topoXY(id,c){
+  const p=DATA.topology[String(id)],cx=(topoMinX+topoMaxX)/2,cy=(topoMinY+topoMaxY)/2;
+  const pad=72,fit=Math.min((c.width-2*pad)/(topoMaxX-topoMinX||1),(c.height-2*pad)/(topoMaxY-topoMinY||1));
+  const scale=fit*.82;
+  return [c.width/2+(p[0]-cx)*scale,c.height/2-(p[1]-cy)*scale];
+}
 function line(ctx,a,b,color,width=1,dash=[]){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([])}
 function drawTopology(canvasId,packetOnly=false){
   const c=document.getElementById(canvasId),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#fbfcfe';ctx.fillRect(0,0,c.width,c.height);
@@ -447,10 +462,18 @@ function drawTopology(canvasId,packetOnly=false){
 }
 function updateMetrics(){const m=metricsAt(simTime),vals=[['Generated',`${m.generated} / ${DATA.bundles.length}`,''],['Active',m.active,''],['Delivered',m.delivered,'good'],['Failed TX',m.fails,'warn'],['Delivery rate',pct(m.rate),''],['Deadline success',pct(m.deadline),'good']];document.getElementById('metrics').innerHTML=vals.map(v=>`<div class="metric"><div class="ml">${v[0]}</div><div class="mv ${v[2]}">${v[1]}</div></div>`).join('')}
 function renderBenchmark(){
-  const b=DATA.benchmark_summary,el=document.getElementById('benchmarkPanel');if(!b?.algorithms){el.style.display='none';return}
+  const b=DATA.benchmark_summary,el=document.getElementById('benchmarkPanel'),details=document.getElementById('benchmarkDetails');if(!b?.algorithms){details.style.display='none';return}
+  document.getElementById('benchmarkSummaryNote').textContent=`${b.num_seeds} paired held-out runs × ${b.bundles_per_seed} packets / algorithm`;
   const t=b.algorithms.temporal,r=b.algorithms.rl_pure;const val=(x,k)=>x?.[k]?.mean;
-  const row=(name,cls,x)=>`<tr><td class="${cls}">${name}</td><td>${pct(val(x,'delivery_ratio'))}</td><td>${pct(val(x,'deadline_success'))}</td><td>${pct(val(x,'priority_weighted_timely'))}</td><td>${fmt(val(x,'mean_latency_s'))}s</td><td>${pct(val(x,'transfer_failure_rate'))}</td></tr>`;
-  el.innerHTML=`<div class="benchmark-head"><div class="benchmark-title">Committed final benchmark</div><div class="benchmark-note">${b.num_seeds} held-out paired runs × ${b.bundles_per_seed} packets per algorithm</div></div><table><thead><tr><th>Algorithm</th><th>Delivery</th><th>On time</th><th>Priority-weighted timely</th><th>Successful-delivery latency</th><th>Transfer failure rate</th></tr></thead><tbody>${row('Temporal','alg-temporal',t)}${row('PPO','alg-ppo',r)}</tbody></table>`;
+  const tLat=val(t,'mean_latency_s'),rLat=val(r,'mean_latency_s'),latDelta=tLat-rLat,latPct=tLat?latDelta/tLat:0;
+  const row=(name,cls,x)=>`<tr><td class="${cls}">${name}</td><td>${pct(val(x,'delivery_ratio'))}</td><td>${pct(val(x,'deadline_success'))}</td><td>${pct(val(x,'priority_weighted_timely'))}</td><td>${pct(val(x,'transfer_failure_rate'))}</td></tr>`;
+  el.innerHTML=`<div class="speed-strip">
+    <div class="speed-card"><div class="speed-kicker">PPO successful-delivery latency</div><div class="speed-value speed-win">${fmt(rLat)}s</div><div class="speed-sub">Mean latency among PPO-delivered packets.</div></div>
+    <div class="speed-card"><div class="speed-kicker">Temporal successful-delivery latency</div><div class="speed-value">${fmt(tLat)}s</div><div class="speed-sub">Mean latency among Temporal-delivered packets.</div></div>
+    <div class="speed-card"><div class="speed-kicker">PPO latency advantage</div><div class="speed-value latency-delta">−${fmt(latDelta)}s</div><div class="speed-sub">${pct(latPct)} lower mean successful-delivery latency than Temporal.</div></div>
+  </div>
+  <table><thead><tr><th>Algorithm</th><th>Delivery</th><th>On time</th><th>Priority-weighted timely</th><th>Transfer failure rate</th></tr></thead><tbody>${row('Temporal','alg-temporal',t)}${row('PPO','alg-ppo',r)}</tbody></table>
+  <div class="benchmark-caveat">Latency compares each algorithm's successful deliveries; the delivery metrics below show the corresponding completeness trade-off.</div>`;
 }
 function renderRows(){
   const live=[],delivered=[];for(const b of DATA.bundles){if(b.created>simTime) continue;const s=stateFor(b,simTime);const row={b,s};(s.key==='delivered'?delivered:live).push(row)}
@@ -458,7 +481,6 @@ function renderRows(){
   document.getElementById('liveRows').innerHTML=live.map(({b,s})=>`<tr class="clickable ${selectedPacket===b.id?'selected':''}" data-packet="${b.id}"><td>${b.index}</td><td><b>${b.id}</b></td><td>${priorityName(b.priority)} · ${b.priority.toFixed(2)}</td><td>${nodeLabel(s.holder)}</td><td class="route">${esc(routeSoFar(b,simTime))}</td><td class="status ${statusClass(s.key)}">${s.status}</td><td class="${s.failures?'bad':''}">${s.failures}</td></tr>`).join('')||`<tr><td colspan="7" class="empty">No packets have been generated yet. Press Play.</td></tr>`;
   document.getElementById('deliveredSummary').textContent=`Delivered packets (${delivered.length})`;
   document.getElementById('deliveredRows').innerHTML=delivered.map(({b,s})=>`<tr class="clickable ${selectedPacket===b.id?'selected':''}" data-packet="${b.id}"><td>${b.index}</td><td><b>${b.id}</b></td><td>${esc(destination(b))}</td><td class="route">${esc(routeText(b))}</td><td>${fmt(b.arrival)}s</td><td class="${b.on_time?'good':'bad'}">${b.on_time?'Yes':'No'}</td><td class="${b.transfer_failures?'bad':''}">${b.transfer_failures}</td></tr>`).join('');
-  document.querySelectorAll('tr[data-packet]').forEach(tr=>tr.onclick=()=>{selectedPacket=tr.dataset.packet;updatePanels(true);drawTopology('topology');drawTopology('packetTopology',true)})
 }
 function packetInspector(){
   const el=document.getElementById('packetInspector');if(!selectedPacket){el.innerHTML='<div class="empty">Select a packet to inspect all metadata and recorded transfer attempts.</div>';return}
@@ -480,14 +502,27 @@ function nodeInspector(){
   const links=contacts.map(c=>`<tr><td>${nodeLabel(c.source)} → ${nodeLabel(c.destination)}</td><td>${esc(c.profile)}</td><td>${(c.rate_bps/1e6).toFixed(0)} Mbps</td><td>${c.range_km.toFixed(0)} km</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No current links.</td></tr>';
   const qrows=queue.map((x)=>`<tr class="clickable" data-qpacket="${x[0].id}"><td>#${x[0].index}</td><td>${x[0].id}</td><td>${x[1].status}</td><td>${priorityName(x[0].priority)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No packets currently held here.</td></tr>';
   document.getElementById('nodeInspector').innerHTML=`<div class="ph"><div class="pt">${n.label} metadata</div><div class="note">current time ${simTime.toFixed(1)}s</div></div><div class="cards">${base.map(c=>`<div class="card"><div class="cl">${c[0]}</div><div class="cv">${esc(c[1])}</div></div>`).join('')}</div><div class="pt" style="margin-top:12px">Current links</div><div class="tablewrap" style="max-height:220px"><table><thead><tr><th>Link</th><th>Profile</th><th>Rate</th><th>Range</th></tr></thead><tbody>${links}</tbody></table></div><div class="pt" style="margin-top:12px">Packets currently held here</div><div class="note">Reconstructed from the recorded replay holder state; this is not a separate queue simulator.</div><div class="tablewrap queue"><table><thead><tr><th>#</th><th>Packet</th><th>Status</th><th>Priority</th></tr></thead><tbody>${qrows}</tbody></table></div>${n.role==='GROUND'?'':`<details><summary>Satellite object fields not enforced as final routing constraints</summary><div class="details-body cards"><div class="card"><div class="cl">Storage field</div><div class="cv">${esc(n.storage_capacity??'—')}</div></div><div class="card"><div class="cl">TX limit field</div><div class="cv">${esc(n.transmit_limit??'—')}</div></div><div class="card"><div class="cl">Link bandwidth field</div><div class="cv">${esc(n.link_bandwidth??'—')}</div></div></div></details>`}<details><summary>Raw node metadata</summary><div class="details-body code">${esc(JSON.stringify(n,null,2))}</div></details>`;
-  document.querySelectorAll('[data-qpacket]').forEach(tr=>tr.onclick=()=>{selectedPacket=tr.dataset.qpacket;setTab('packets');updatePanels(true)})
 }
 function metadata(){
   const exp=DATA.experiment, model=DATA.model_metadata||{},bench=DATA.benchmark_summary||{};
   const head=[['Traffic profile',exp.scenario_label],['Routing mode',exp.mode],['Reported benchmark mode',exp.reported?'Yes':'No'],['Traffic seed',exp.traffic_seed],['Stochastic seed',exp.stochastic_seed],['Config SHA-256',exp.config_sha256],['PPO model',exp.model_path],['Model loaded',exp.model_loaded?'Yes':'No']];
-  document.getElementById('runMetadata').innerHTML=`<div class="cards" style="grid-template-columns:1fr 1fr">${head.map(c=>`<div class="card"><div class="cl">${c[0]}</div><div class="cv">${esc(c[1])}</div></div>`).join('')}</div><details open><summary>Backend features surfaced by this frontend</summary><div class="details-body">Temporal earliest-arrival routing · pure MaskablePPO routing · scheduled policy switching for demo mode · physical contact windows · shared contact capacity · seeded stochastic transfer failures/retries · three research satellites · six LEO relays · two GEO relays · three operational ground receivers · packet priorities/deadlines · committed paired benchmark evidence.</div></details><details open><summary>Frontend-only presentation / derived views</summary><div class="details-body">The 2D orbit projection, compressed display radii, browser playback rate, human-readable traffic-run summaries, route highlighting, and reconstructed “packets currently held here” views are presentation logic. They do not add new routing or simulation behavior.</div></details><details><summary>Locked scenario configuration</summary><div class="details-body code">${esc(JSON.stringify(DATA.config,null,2))}</div></details><details><summary>PPO model metadata</summary><div class="details-body code">${esc(JSON.stringify(model,null,2))}</div></details><details><summary>Committed benchmark summary</summary><div class="details-body code">${esc(JSON.stringify(bench,null,2))}</div></details>`;
+  document.getElementById('runMetadata').innerHTML=`<div class="cards" style="grid-template-columns:1fr 1fr">${head.map(c=>`<div class="card"><div class="cl">${c[0]}</div><div class="cv">${esc(c[1])}</div></div>`).join('')}</div><details open><summary>Backend features surfaced by this frontend</summary><div class="details-body">Temporal earliest-arrival routing · pure MaskablePPO routing · physical contact windows · shared contact capacity · seeded stochastic transfer failures/retries · three research satellites · six LEO relays · two GEO relays · three operational ground receivers · packet priorities/deadlines · committed paired benchmark evidence.</div></details><details open><summary>Frontend-only presentation / derived views</summary><div class="details-body">The 2D orbit projection, compressed display radii, browser playback rate, human-readable traffic-run summaries, route highlighting, and reconstructed “packets currently held here” views are presentation logic. They do not add new routing or simulation behavior.</div></details><details><summary>Locked scenario configuration</summary><div class="details-body code">${esc(JSON.stringify(DATA.config,null,2))}</div></details><details><summary>PPO model metadata</summary><div class="details-body code">${esc(JSON.stringify(model,null,2))}</div></details><details><summary>Committed benchmark summary</summary><div class="details-body code">${esc(JSON.stringify(bench,null,2))}</div></details>`;
 }
-function setTab(name){activeTab=name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('.tabpanel').forEach(p=>p.classList.toggle('active',p.id===`tab-${name}`));if(name==='packets'){packetInspector();drawTopology('packetTopology',true)}if(name==='satellites'){nodeList();nodeInspector()}}
+function selectPacket(packetId){
+  if(!packetId||!DATA.bundles.some(b=>b.id===packetId))return;
+  selectedPacket=packetId;
+  updatePanels(true);
+  drawTopology('topology');
+  drawTopology('packetTopology',true);
+  scheduleFrameHeight();
+}
+document.addEventListener('click',event=>{
+  const row=event.target.closest('tr[data-packet]');
+  if(row){selectPacket(row.dataset.packet);return}
+  const qrow=event.target.closest('tr[data-qpacket]');
+  if(qrow){selectPacket(qrow.dataset.qpacket);setTab('packets')}
+});
+function setTab(name){activeTab=name;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('.tabpanel').forEach(p=>p.classList.toggle('active',p.id===`tab-${name}`));if(name==='packets'){packetInspector();drawTopology('packetTopology',true)}if(name==='satellites'){nodeList();nodeInspector()}scheduleFrameHeight()}
 function updatePanels(force=false){
   const second=Math.floor(simTime);if(!force&&second===lastPanelUpdate)return;lastPanelUpdate=second;updateMetrics();document.getElementById('timeText').textContent=`${simTime.toFixed(1)}s`;renderRows();packetInspector();if(activeTab==='satellites')nodeInspector();
 }
@@ -500,9 +535,35 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)
 document.getElementById('playBtn').onclick=()=>{playing=!playing;lastWall=performance.now();document.getElementById('playBtn').textContent=playing?'Pause':'Play'};
 document.getElementById('stepBtn').onclick=()=>{playing=false;document.getElementById('playBtn').textContent='Play';simTime=Math.min(horizon,simTime+step);updatePanels(true)};
 document.getElementById('resetBtn').onclick=()=>{playing=false;document.getElementById('playBtn').textContent='Play';simTime=0;selectedPacket=null;updatePanels(true)};
-document.getElementById('metaBtn').onclick=()=>document.getElementById('drawer').classList.add('open');
-document.getElementById('closeDrawer').onclick=()=>document.getElementById('drawer').classList.remove('open');
-renderBenchmark();metadata();nodeList();updatePanels(true);requestAnimationFrame(animate);
+let lastFrameHeight=0;
+function reportFrameHeight(){
+  const body=document.body,root=document.documentElement;
+  const height=Math.ceil(Math.max(
+    body ? body.scrollHeight : 0,
+    body ? body.offsetHeight : 0,
+    root ? root.scrollHeight : 0,
+    root ? root.offsetHeight : 0
+  )+8);
+  if(Math.abs(height-lastFrameHeight)<2)return;
+  lastFrameHeight=height;
+  window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setFrameHeight',height},'*');
+}
+let heightRAF=0;
+function scheduleFrameHeight(){
+  if(heightRAF)cancelAnimationFrame(heightRAF);
+  heightRAF=requestAnimationFrame(()=>{heightRAF=0;reportFrameHeight()});
+}
+if('ResizeObserver' in window){
+  const ro=new ResizeObserver(scheduleFrameHeight);ro.observe(document.documentElement);ro.observe(document.body);
+}
+const mo=new MutationObserver(scheduleFrameHeight);mo.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','open','style']});
+document.addEventListener('toggle',scheduleFrameHeight,true);
+window.addEventListener('load',scheduleFrameHeight);
+window.addEventListener('resize',scheduleFrameHeight);
+
+document.getElementById('metaBtn').onclick=()=>{document.getElementById('drawer').classList.add('open');scheduleFrameHeight()};
+document.getElementById('closeDrawer').onclick=()=>{document.getElementById('drawer').classList.remove('open');scheduleFrameHeight()};
+renderBenchmark();metadata();nodeList();updatePanels(true);scheduleFrameHeight();requestAnimationFrame(animate);
 </script>
 </body>
 </html>'''

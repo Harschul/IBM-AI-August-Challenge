@@ -27,8 +27,8 @@ st.markdown(
     [data-testid="stVerticalBlock"] { gap: .45rem; }
     [data-testid="stHorizontalBlock"] { gap: .55rem; }
     .stApp { background:#fff; }
-    .project-title { font: 900 1rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#172033; letter-spacing:-.03em; padding-top:.45rem; white-space:nowrap; }
-    .project-subtitle { font: .68rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#718198; margin-top:.1rem; }
+    .project-title { font: 900 1.08rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#172033; letter-spacing:-.03em; padding-top:.35rem; margin-bottom:.42rem; white-space:nowrap; }
+    .project-subtitle { font: .68rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#718198; margin-top:0; margin-bottom:.5rem; line-height:1.45; }
     div[data-baseweb="select"] > div { min-height:2.35rem; border-color:#d7e0ea; }
     div[role="radiogroup"] { gap:.15rem; }
     div[role="radiogroup"] label { padding:.2rem .45rem; }
@@ -73,12 +73,11 @@ def main() -> None:
 
     title_col, route_col, scenario_col = st.columns([3.2, 2.0, 7.0], vertical_alignment="center")
     with title_col:
-        st.markdown('<div class="project-title">CONSTELLATION ROUTING SIMULATOR</div>', unsafe_allow_html=True)
-        st.markdown('<div class="project-subtitle">physical contacts · stochastic transfers · three operational ground receivers</div>', unsafe_allow_html=True)
+        st.markdown('<div class="project-title">CONSTELLATION ROUTING SIMULATOR</div><div class="project-subtitle">physical contacts · stochastic transfers · three operational ground receivers</div>', unsafe_allow_html=True)
     with route_col:
         routing_label = st.radio(
             "Routing",
-            ["Temporal", "PPO", "Switch demo"],
+            ["Temporal", "PPO"],
             horizontal=True,
             label_visibility="collapsed",
         )
@@ -94,25 +93,13 @@ def main() -> None:
 
     selected_profile = next(profile for profile in profiles if profile.label == selected_label)
     st.caption(selected_profile.description)
-    before_policy, after_policy, switch_time_s = "temporal", "rl", 900.0
     if routing_label == "Temporal":
         mode = "reported_temporal"
         before_policy = after_policy = "temporal"
-        switch_time_s = None
-    elif routing_label == "PPO":
+    else:
         mode = "reported_rl"
         before_policy = after_policy = "rl"
-        switch_time_s = None
-    else:
-        mode = "interactive_switch"
-        with st.popover("Switch settings"):
-            before_name = st.radio("Start with", ["Temporal", "PPO"], horizontal=True)
-            after_name = st.radio("Then use", ["PPO", "Temporal"], horizontal=True)
-            switch_time_s = float(st.slider("Switch at", 60, max(60, int(config.horizon_s) - 60), min(900, int(config.horizon_s) - 60), 30, format="%d s"))
-            before_policy = "temporal" if before_name == "Temporal" else "rl"
-            after_policy = "temporal" if after_name == "Temporal" else "rl"
-            if before_policy == after_policy:
-                st.caption("Choose different policies to demonstrate a real switch.")
+    switch_time_s = None
 
     try:
         replay = _cached_replay(
