@@ -4,9 +4,9 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-ppo/
 venv/
 env/
-.venv-ppo/
 
 # Environment variables / secrets
 .env
@@ -21,3 +21,12 @@ env/
 
 # OS
 .DS_Store
+
+# Training/runtime outputs
+RL/rl_env_v0/logs/
+artifacts/final_experiment/benchmark/*.csv
+artifacts/final_experiment/benchmark/*.json
+artifacts/final_experiment/demo/**
+
+# Keep artifact documentation tracked
+!artifacts/final_experiment/README.md

@@ -1,122 +1,84 @@
 #!/usr/bin/env python3
-"""Run orbital physics -> temporal contacts -> baseline/RL on identical traffic."""
+"""CLI replay for one seed from the locked final stochastic experiment.
+
+Defaults to pure PPO using the newly retrained checkpoint. Use --algorithm
+temporal for the paired baseline or --algorithm rl_with_temporal_fallback only
+for an operational safety-mode demonstration.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import math
-from collections import Counter
-from dataclasses import asdict
 from pathlib import Path
 
-from src.integration.config import load_config
-from src.integration.contact_plan import build_contact_plan
-from src.integration.rl_bridge import MaskablePPOPolicy
-from src.integration.scenario import simulate_snapshots
-from src.integration.simulation import IntegratedSimulator, aggregate_results
+from src.experiment.runner import aggregate, build_world, load_final_policy, run_algorithm
+from src.experiment.spec import load_final_spec, repo_path
 from src.integration.traffic import generate_bundles
 
 
-def _clean_number(value):
-    return None if isinstance(value, float) and math.isnan(value) else value
-
-
-def write_results(out_dir: Path, rows, summary: dict):
-    out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / "integrated_bundle_results.csv"
-    json_path = out_dir / "integrated_summary.json"
-
-    with csv_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh,
-            fieldnames=[
-                "bundle_id", "source_id", "policy", "delivered", "on_time", "arrival_s",
-                "latency_s", "hops", "path", "fallbacks", "reason",
-                "science_priority",
-            ],
-        )
-        writer.writeheader()
-        for row in rows:
-            payload = asdict(row)
-            payload["path"] = "-".join(str(n) for n in row.path)
-            writer.writerow(payload)
-
-    json_path.write_text(
-        json.dumps(
-            {
-                key: {k: _clean_number(v) for k, v in metrics.items()}
-                for key, metrics in summary.items()
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return csv_path, json_path
-
-
-def print_summary(name: str, metrics: dict):
-    print(f"\n{name}")
-    print("-" * len(name))
-    print(f"delivery ratio             {metrics['delivery_ratio']:.3f}")
-    print(f"deadline success           {metrics['deadline_success']:.3f}")
-    print(f"priority-weighted timely   {metrics['priority_weighted_timely']:.3f}")
-    if not math.isnan(metrics["mean_latency_s"]):
-        print(f"mean latency               {metrics['mean_latency_s']:.1f} s")
-    print(f"mean hops                  {metrics['mean_hops']:.2f}")
-    if name.startswith("RL"):
-        print(f"fallbacks / executed hops  {metrics['fallback_rate']:.3f}")
-
-
-def main():
+def main() -> None:
+    spec = load_final_spec()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config/prototype.yaml")
-    parser.add_argument("--bundles", type=int, default=100)
-    parser.add_argument("--traffic-seed", type=int, default=20260830)
-    parser.add_argument(
-        "--model",
-        default="RL/rl_env_v0/models/rl_agent_seed_42.zip",
-        help="MaskablePPO checkpoint. Use --no-rl to skip model loading.",
-    )
-    parser.add_argument("--no-rl", action="store_true")
-    parser.add_argument("--out", default="integrated_results")
+    parser.add_argument("--algorithm", choices=["rl_pure", "temporal", "rl_with_temporal_fallback"], default="rl_pure")
+    parser.add_argument("--seed-offset", type=int, default=spec.demo.default_seed_offset)
+    parser.add_argument("--out", default="artifacts/final_experiment/demo/cli")
     args = parser.parse_args()
 
-    config = load_config(args.config)
-    satellites, snapshots = simulate_snapshots(config)
-    plan, diagnostics = build_contact_plan(snapshots, config)
-    bundles = generate_bundles(config, count=args.bundles, seed=args.traffic_seed)
-
-    print("Science bundle sources")
-    print("----------------------")
-    for source_id, count in sorted(Counter(bundle.source_id for bundle in bundles).items()):
-        print(f"SCI-{source_id}                    {count}")
-
-    print("Physical contact plan")
-    print("---------------------")
-    print(f"contacts                  {diagnostics.contacts}")
-    print(f"satellite contacts        {diagnostics.satellite_contacts}")
-    print(f"ground contacts           {diagnostics.ground_contacts}")
-    print(f"direct science->ground    {diagnostics.direct_to_ground_contacts}")
-    print(f"horizon                   {diagnostics.horizon_s:.1f} s")
-
-    simulator = IntegratedSimulator(plan, config)
-    baseline_rows = simulator.run_baseline(bundles)
-    summary = {"baseline": aggregate_results(baseline_rows)}
-    all_rows = list(baseline_rows)
-    print_summary("Baseline", summary["baseline"])
-
-    if not args.no_rl:
-        policy = MaskablePPOPolicy(args.model)
-        rl_rows = simulator.run_rl_with_fallback(bundles, policy)
-        summary["rl_fallback"] = aggregate_results(rl_rows)
-        all_rows.extend(rl_rows)
-        print_summary("RL + deterministic fallback", summary["rl_fallback"])
-
-    csv_path, json_path = write_results(Path(args.out), all_rows, summary)
-    print(f"\nWrote {csv_path}")
-    print(f"Wrote {json_path}")
+    world = build_world(spec)
+    traffic_seed, stochastic_seed = spec.benchmark.seeds(args.seed_offset)
+    bundles = generate_bundles(world.config, count=spec.benchmark.bundles_per_seed, seed=traffic_seed)
+    policy = load_final_policy(spec) if args.algorithm.startswith("rl") else None
+    rows = run_algorithm(
+        algorithm=args.algorithm,
+        plan=world.plan,
+        config=world.config,
+        bundles=bundles,
+        policy=policy,
+        stochastic_seed=stochastic_seed,
+        max_hops=spec.benchmark.max_hops,
+        max_attempts=spec.benchmark.max_attempts,
+    )
+    metrics = aggregate(rows)
+    out = repo_path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "experiment": spec.name,
+        "algorithm": args.algorithm,
+        "reported_experiment": args.algorithm in spec.demo.reported_modes,
+        "seed_offset": args.seed_offset,
+        "traffic_seed": traffic_seed,
+        "stochastic_seed": stochastic_seed,
+        "bundles": spec.benchmark.bundles_per_seed,
+        "model": str(spec.model) if policy is not None else None,
+        "config_sha256": spec.scenario_config_sha256,
+        "metrics": metrics,
+    }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    with (out / "bundle_results.csv").open("w", newline="", encoding="utf-8") as fh:
+        fields = ["bundle_id", "source_id", "science_priority", "delivered", "on_time", "arrival_s", "latency_s", "hops", "attempts", "transfer_failures", "wasted_capacity_bytes", "fallbacks", "path", "reason"]
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({
+                "bundle_id": row.bundle_id,
+                "source_id": row.source_id,
+                "science_priority": row.science_priority,
+                "delivered": row.delivered,
+                "on_time": row.on_time,
+                "arrival_s": row.arrival_s,
+                "latency_s": row.latency_s,
+                "hops": row.hops,
+                "attempts": row.attempts,
+                "transfer_failures": row.transfer_failures,
+                "wasted_capacity_bytes": row.wasted_capacity_bytes,
+                "fallbacks": row.fallbacks,
+                "path": "-".join(map(str, row.path)),
+                "reason": row.reason,
+            })
+    print(json.dumps(summary, indent=2))
+    print(f"\nWrote {out}")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from src.frontend.theme import (
     EARTH_EDGE,
     EARTH_SURFACE,
     FALLBACK,
+    FAIL,
     GEO,
     GROUND,
     GROUND_LINK,
@@ -227,12 +228,12 @@ def build_orbital_figure(
                 textposition="top center",
                 marker={
                     "size": [8 + 4 * packet.priority for packet in packets],
-                    "color": [FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL) for packet in packets],
+                    "color": [FAIL if not packet.will_succeed else (FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL)) for packet in packets],
                     "symbol": "diamond",
                     "line": {"color": PANEL, "width": 1},
                 },
-                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or ""] for packet in packets],
-                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<extra></extra>",
+                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or "", packet.will_succeed, packet.failure_probability, packet.success_draw] for packet in packets],
+                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<br>success=%{customdata[3]}<br>p_fail=%{customdata[4]:.3f}<br>draw=%{customdata[5]:.3f}<extra></extra>",
                 name="Packets",
                 showlegend=False,
             )
@@ -334,12 +335,12 @@ def build_topology_figure(
                 textposition="top center",
                 marker={
                     "size": [11 + 8 * packet.priority for packet in packets],
-                    "color": [FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL) for packet in packets],
+                    "color": [FAIL if not packet.will_succeed else (FALLBACK if packet.fallback_used else (RL if packet.actual_algorithm == "rl" else TEMPORAL)) for packet in packets],
                     "symbol": "diamond",
                     "line": {"color": PANEL, "width": 1},
                 },
-                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or ""] for packet in packets],
-                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<extra></extra>",
+                customdata=[[packet.requested_algorithm, packet.actual_algorithm, packet.fallback_reason or "", packet.will_succeed, packet.failure_probability, packet.success_draw] for packet in packets],
+                hovertemplate="bundle=%{text}<br>requested=%{customdata[0]}<br>actual=%{customdata[1]}<br>fallback=%{customdata[2]}<br>success=%{customdata[3]}<br>p_fail=%{customdata[4]:.3f}<br>draw=%{customdata[5]:.3f}<extra></extra>",
                 showlegend=False,
             )
         )
@@ -357,7 +358,7 @@ def build_topology_figure(
         },
         height=620,
         annotations=[
-            {"x": -2.45, "y": 2.62, "xref": "x", "yref": "y", "text": "Switch pathfinding mid-run with the sidebar controls", "showarrow": False, "font": {"size": 11, "color": MUTED}, "align": "left"}
+            {"x": -2.45, "y": 2.62, "xref": "x", "yref": "y", "text": ("Interactive switch mode — not part of reported benchmark" if replay.mode == "interactive_switch" else f"Reported experiment seed offset {replay.seed_offset}"), "showarrow": False, "font": {"size": 11, "color": MUTED}, "align": "left"}
         ],
     )
     return fig

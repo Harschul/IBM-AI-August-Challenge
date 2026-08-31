@@ -1,4 +1,0 @@
-# Install on top of the v2 integration bundle without pulling the root
-# requirements.txt (which may pin a Python-version-specific NumPy build).
--r requirements-integration.txt
--r RL/rl_env_v0/requirements.txt

@@ -1,0 +1,43 @@
+Canonical configuration
+  config/prototype.yaml
+  config/final_experiment.json
+
+Shared experiment engine
+  src/experiment/spec.py
+  src/experiment/runner.py
+  src/experiment/benchmark.py
+
+Physical/stochastic integration
+  src/integration/config.py
+  src/integration/scenario.py
+  src/integration/contact_plan.py
+  src/integration/capacity.py
+  src/integration/traffic.py
+  src/integration/rl_bridge.py
+  src/integration/stochastic_transfer.py
+  src/integration/physical_rl_env.py
+
+Frontend
+  src/frontend/app.py
+  src/frontend/replay.py
+  src/frontend/figures.py
+  src/frontend/layout.py
+  src/frontend/theme.py
+  run_frontend.py
+
+Training and benchmark
+  train_physical_ppo_stochastic.py
+  check_training_setup.py
+  run_final_benchmark.py
+  benchmark_temporal_vs_rl_stochastic.py
+  run_integrated_demo.py
+
+Documentation
+  FINAL_RELEASE.md
+  docs/final/INSTALL.md
+  docs/final/EXPERIMENT.md
+  docs/final/TRAINING.md
+  docs/final/BENCHMARK.md
+  docs/final/DEMO.md
+  docs/final/MIGRATION.md
+  docs/final/VALIDATION.md
