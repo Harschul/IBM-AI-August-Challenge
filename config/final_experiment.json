@@ -1,0 +1,32 @@
+{
+  "format": "ibm-ai-august-final-experiment-v1",
+  "name": "physical-multisource-stochastic-final",
+  "scenario_config": "config/prototype.yaml",
+  "scenario_config_sha256": "cf9f11e8ac81dc066fad151d751b9207201c6e5354dbd21a26440da192ce3004",
+  "model": "RL/rl_env_v0/models/physical_multisource_stochastic_ppo.zip",
+  "benchmark": {
+    "algorithms": ["temporal", "rl_pure"],
+    "num_seeds": 20,
+    "traffic_seed_base": 900000000,
+    "stochastic_seed_base": 700000000,
+    "bundles_per_seed": 500,
+    "max_hops": 8,
+    "max_attempts": 24,
+    "output_dir": "artifacts/final_experiment/benchmark"
+  },
+  "demo": {
+    "default_seed_offset": 0,
+    "default_algorithm": "rl_pure",
+    "output_dir": "artifacts/final_experiment/demo",
+    "reported_modes": ["rl_pure", "temporal"],
+    "interactive_switch_is_reported": false
+  },
+  "training": {
+    "timesteps": 2000000,
+    "n_envs": 4,
+    "bundles_per_episode": 32,
+    "max_attempts": 24,
+    "seed": 42,
+    "tensorboard_dir": "RL/rl_env_v0/logs/physical_multisource_stochastic"
+  }
+}

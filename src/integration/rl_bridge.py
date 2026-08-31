@@ -1,13 +1,9 @@
-"""Use the existing 14-action MaskablePPO checkpoints on canonical contacts.
+"""Bridge the canonical physical ContactPlan to the final 14-action MaskablePPO policy.
 
-The trained policy's frozen interface is preserved: 4 bundle features plus
-14 candidates x 11 features = 158 floats, and a 14-entry action mask. The
-physical scenario now uses three science sources while keeping 14 total IDs, so
-existing checkpoints remain shape-compatible. Their training distribution was
-single-source, so multi-source results should be treated as transfer evaluation
-until the policy is retrained on the new source distribution.
-No import from `RL/rl_env_v0/src` is required, avoiding the repository's two
-competing packages named `src`.
+The frozen final interface is 4 bundle features plus 14 candidates × 11 features
+(158 floats) with a 14-entry action mask. The canonical checkpoint shipped with
+this release was retrained on the 3-science / 6-LEO / 2-GEO / 3-ground physical
+stochastic environment. No legacy RL package import is required at runtime.
 """
 
 from __future__ import annotations
@@ -137,9 +133,8 @@ def _numpy2_compat() -> None:
     which run_integrated_demo.py currently does, so the baseline prints and
     then the RL half crashes.
 
-    The same workaround already exists in RL/rl_env_v0/src/rl/eval_with_baseline.py
-    and eval_all.py; this is the third copy because src/integration/
-    deliberately does not import from RL/rl_env_v0 (two packages named `src`).
+    This compatibility shim is kept local to the final integration bridge so
+    checkpoint loading does not depend on any legacy RL package.
     """
     import sys
 
@@ -187,7 +182,7 @@ class MaskablePPOPolicy:
         except ImportError as exc:
             raise RuntimeError(
                 "RL policy requested but sb3-contrib is not installed. "
-                "Install requirements-integration.txt."
+                "Install requirements.txt."
             ) from exc
 
         _numpy2_compat()

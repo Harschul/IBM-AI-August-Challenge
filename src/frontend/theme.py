@@ -7,7 +7,7 @@ and clean annotation rather than a dashboard-heavy aesthetic.
 
 from __future__ import annotations
 
-BACKGROUND = "#f8fafc"
+BACKGROUND = "#ffffff"
 PANEL = "#ffffff"
 TEXT = "#111827"
 MUTED = "#475569"

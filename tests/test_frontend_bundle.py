@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 
+from src.experiment.runner import run_algorithm
 from src.frontend.figures import build_orbital_figure, build_topology_figure
 from src.frontend.layout import topology_positions
-from src.frontend.replay import _choose_action, build_replay
-from src.integration.capacity import CapacityLedger
+from src.frontend.replay import build_replay
 from src.integration.config import SCIENCE_IDS, load_config
 from src.models.bundle import DataBundle
 from src.models.contact import Contact, ContactPlan
@@ -19,70 +19,43 @@ def test_topology_layout_covers_fixed_nodes_and_multiple_science_sources():
     assert 13 in layout
 
 
-def test_requested_rl_with_missing_model_is_explicit_temporal_execution():
+class BrokenPolicy:
+    def choose(self, observation, mask):
+        raise RuntimeError("intentional")
+
+
+def test_fallback_records_requested_rl_but_actual_temporal():
     cfg = load_config("config/prototype.yaml")
-    source_id = SCIENCE_IDS[1]
     plan = ContactPlan([
-        Contact(source_id, 11, 0.0, 100.0, 80_000_000.0, range_km=1000.0),
+        Contact(0, 11, 0.0, 100.0, 80_000_000.0, range_km=1000.0, residual_capacity_bytes=20_000_000),
     ])
-    bundle = DataBundle("fallback", source_id, 5_000_000, deadline_s=100.0)
-    action, actual, reason = _choose_action(
-        "rl",
-        None,
-        CapacityLedger(plan),
-        bundle,
-        0.0,
-        cfg,
-    )
-    assert action == 11
-    assert actual == "temporal"
-    assert reason == "rl_model_unavailable"
+    bundle = DataBundle("fallback", 0, 5_000_000, deadline_s=100.0)
+    row = run_algorithm(
+        algorithm="rl_with_temporal_fallback",
+        plan=plan,
+        config=cfg,
+        bundles=[bundle],
+        policy=BrokenPolicy(),
+        stochastic_seed=777,
+    )[0]
+    assert row.attempt_trace
+    attempt = row.attempt_trace[0]
+    assert attempt.requested_algorithm == "rl"
+    assert attempt.actual_algorithm == "temporal"
+    assert attempt.fallback_used is True
 
 
-def test_replay_labels_requested_and_actual_algorithms_separately():
-    replay = build_replay(
-        bundles=8,
-        traffic_seed=123,
-        before_policy="rl",
-        after_policy="rl",
-        switch_time_s=None,
-        model_path="RL/rl_env_v0/models/does_not_exist.zip",
-        allow_missing_model=True,
-    )
-    assert replay.model_loaded is False
-    assert replay.requested_algorithm_at(100.0) == "rl"
-
-    hops = [hop for bundle in replay.bundle_runs for hop in bundle.hops]
-    assert hops, "the replay should include at least one routing decision"
-    assert all(hop.requested_algorithm == "rl" for hop in hops)
-    assert all(hop.actual_algorithm == "temporal" for hop in hops)
-    assert all(hop.fallback_used for hop in hops)
-
-
-def test_requested_algorithm_switch_is_visible_independently_of_execution():
-    replay = build_replay(
-        bundles=4,
-        traffic_seed=456,
-        before_policy="temporal",
-        after_policy="rl",
-        switch_time_s=600.0,
-        model_path="RL/rl_env_v0/models/does_not_exist.zip",
-        allow_missing_model=True,
-    )
+def test_reported_temporal_replay_uses_locked_benchmark_seed_family():
+    replay = build_replay(mode="reported_temporal", seed_offset=0)
+    assert replay.reported_experiment is True
+    assert replay.traffic_seed == replay.spec.benchmark.traffic_seed_base
+    assert replay.stochastic_seed == replay.spec.benchmark.stochastic_seed_base
+    assert len(replay.bundle_runs) == replay.spec.benchmark.bundles_per_seed
     assert replay.requested_algorithm_at(100.0) == "temporal"
-    assert replay.requested_algorithm_at(1200.0) == "rl"
 
 
-def test_figures_render_with_multiple_science_nodes():
-    replay = build_replay(
-        bundles=4,
-        traffic_seed=321,
-        before_policy="temporal",
-        after_policy="temporal",
-        switch_time_s=None,
-        model_path="RL/rl_env_v0/models/does_not_exist.zip",
-        allow_missing_model=True,
-    )
+def test_figures_render_from_reported_temporal_experiment():
+    replay = build_replay(mode="reported_temporal", seed_offset=0)
     t = replay.times[min(10, len(replay.times) - 1)]
     orbital = build_orbital_figure(replay, t)
     topology = build_topology_figure(replay, t)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from benchmark_temporal_vs_rl_stochastic import run_algorithm
+from src.experiment.runner import run_algorithm
 from src.integration.config import load_config
 from src.models.bundle import DataBundle
 from src.models.contact import Contact, ContactPlan

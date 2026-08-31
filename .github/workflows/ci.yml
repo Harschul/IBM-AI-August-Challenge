@@ -1,0 +1,32 @@
+name: final-project-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+      - name: Compile
+        run: python -m compileall -q src run_frontend.py run_integrated_demo.py run_final_benchmark.py train_physical_ppo_stochastic.py scripts/final
+      - name: Tests
+        run: python -m pytest -q
+      - name: Verify locked release
+        run: python scripts/final/verify_release.py
+      - name: Temporal runtime smoke test
+        run: python run_integrated_demo.py --algorithm temporal --seed-offset 0 --out /tmp/final-smoke

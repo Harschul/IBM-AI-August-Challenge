@@ -1,100 +1,138 @@
-# IBM-AI-August-Challenge
+# Multi-Orbit Scientific Data Relay Network
 
-Multi-Orbit Scientific Data Relay Network
+Final IBM AI August Challenge project: a physical orbital routing simulation that generates science data across three research spacecraft, routes it through LEO/GEO relays, and delivers it to one of three operational ground receivers.
 
-An AI-orchestrated relay network that routes high-value science data across
-direct-to-ground, GEO and LEO paths before its value expires. This repository
-holds the simulator, the routing baseline, the RL environment and the
-evaluation harness.
+The final release has one locked experiment definition and one execution engine shared by the benchmark and visual demo. The reported comparison is **Temporal earliest-arrival routing vs pure MaskablePPO** on identical physical scenarios with seeded stochastic transfer failures.
 
----
+## What the demo shows
 
-## Requirements
+- 3 research satellites generating science bundles
+- 6 LEO relays and 2 GEO relays
+- 3 real ground receivers (not the old Earth-coverage sample points)
+- physically derived temporal contact windows
+- capacity-aware, contact-window-valid transfers
+- stochastic failures from configured weather/health/reliability assumptions
+- animated packet paths on the orbital simulation
+- switchable **Reported PPO**, **Reported Temporal**, and clearly marked interactive switch mode
 
-**Python 3.11 or newer** for the full repository. The root `requirements.txt`
-pins `contourpy==1.3.3`, `numpy==2.5.2` and `matplotlib==3.11.1`, none of which
-publish wheels for older versions — on Python 3.9 or 3.10 the install fails at
-the first package with a `Requires-Python` error.
+## Quick start
 
-The RL environment alone runs on **Python 3.9+** via
-`RL/rl_env_v0/requirements.txt`, which uses lower bounds rather than pins. If
-the demo machine is on an older Python, use that path.
-
-## Install
-
-Everything (needs Python 3.11+):
+Python 3.11+ is recommended.
 
 ```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python scripts/final/verify_release.py
+python run_frontend.py
 ```
 
-RL environment and evaluation only (works on Python 3.9+):
+The final PPO checkpoint is already included at:
+
+```text
+RL/rl_env_v0/models/physical_multisource_stochastic_ppo.zip
+```
+
+No retraining is required to run the demo.
+
+## Final benchmark
+
+The locked benchmark uses:
+
+- 20 held-out paired seed scenarios
+- 500 science bundles per seed
+- identical traffic and stochastic seed families for both algorithms
+- 3 science sources, 6 LEO relays, 2 GEO relays, 3 ground receivers
+- pure PPO with **no Temporal fallback** in the headline RL result
+
+Committed aggregate results:
+
+| Metric | Temporal | Retrained PPO |
+|---|---:|---:|
+| Delivery ratio | **75.28%** | 62.16% |
+| On-time delivery | **71.08%** | 59.47% |
+| Priority-weighted timely delivery | **67.21%** | 57.08% |
+| Mean latency of successful deliveries | 216.3 s | **181.3 s** |
+| Mean hops | **2.23** | 3.39 |
+| Transfer failure rate | 4.39% | **3.40%** |
+
+The result is intentionally reported as measured by the simulation: PPO is faster on successful deliveries and selects lower-risk links, but the deterministic Temporal router achieves higher overall and on-time delivery.
+
+The committed evidence is in:
+
+```text
+artifacts/final_experiment/benchmark/
+├── summary.json
+├── seed_metrics.csv
+└── bundle_results.csv
+```
+
+Run the benchmark again with:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r RL/rl_env_v0/requirements.txt
+python run_final_benchmark.py
 ```
 
-No component makes network calls, so everything below runs offline once
-installed.
+That command also regenerates the detailed per-attempt log.
 
-## Running things
+## Experiment identity
 
-### Routing baseline
+`config/final_experiment.json` is the single source of truth for the reported experiment. It locks the physical scenario config, expected config SHA-256, final PPO checkpoint, seed family, bundle count, and algorithm modes.
 
-The temporal earliest-arrival router, its tests and a walkthrough. Pure standard
-library — no third-party packages needed beyond `pytest` for the tests.
+Both the benchmark and reported frontend replay call the same execution engine:
 
-```bash
-python3 demo_route.py               # worked examples with route timelines
-python3 -m pytest tests/ -q         # 11 tests with hand-calculated answers
+```text
+src/experiment/runner.py
 ```
 
-### RL environment
-
-Run these from `RL/rl_env_v0/`, which is where `src/rl/` and the model
-checkpoints sit:
-
-```bash
-cd RL/rl_env_v0
-
-python3 run_demo.py                        # action-masking sanity check
-python3 src/rl/eval_all.py                 # agents vs masked-random
-python3 src/rl/eval_with_baseline.py       # agents vs the temporal router
-python3 src/rl/architecture_comparison.py  # GEO-only vs LEO mesh vs hybrid
-python3 src/rl/route_trace.py              # side-by-side route traces
-```
-
-`eval_with_baseline.py` and `architecture_comparison.py` write to
-`RL/rl_env_v0/results/` — CSV per bundle, plus JSON carrying the git commit and
-checkpoint hashes that produced each run.
+The frontend does not use a separate simplified routing simulator for reported results.
 
 ## Repository layout
 
-| path | what it is |
-|---|---|
-| `src/model/` | orbital simulation, constellation optimisation, packet routing |
-| `src/models/` | `Contact`, `ContactPlan`, `DataBundle` |
-| `src/routing/` | temporal earliest-arrival / CGR-style router and route traces |
-| `RL/rl_env_v0/` | Gymnasium routing environment, training, evaluation |
-| `config/` | scenario configuration |
-| `tests/` | routing baseline tests |
+```text
+config/                     locked scenario + experiment definition
+src/model/                  orbital simulator/research utilities
+src/models/                 ContactPlan and DataBundle data models
+src/routing/                Temporal earliest-arrival router
+src/integration/            physical contacts, capacity, stochastic transfers, PPO bridge
+src/experiment/             canonical final runner + benchmark
+src/frontend/               Streamlit/Plotly visualization
+RL/rl_env_v0/models/        canonical final PPO checkpoint + metadata
+artifacts/final_experiment/ committed final benchmark evidence
+tests/                      regression/integration tests
+docs/final/                 concise experiment/demo/training notes
+```
 
-## Prototype assumptions
+## Validation
 
-Numbers in this repository are **simulation assumptions**, not measurements of
-real systems, unless a source is named:
+Without installing PPO/Streamlit, the lightweight test suite is:
 
-- The RL environment runs on a **mock contact graph**, not real orbital
-  geometry. Contact windows, data rates, congestion and weather are randomly
-  generated.
-- **Direct-to-ground is not modelled.** `mock_graph._allowed_pairs()` generates
-  no science-satellite-to-ground link, so that architecture cannot currently be
-  evaluated.
-- Link rates, ranges and priorities are chosen so the routing problem is
-  realistic, not because they match a specific spacecraft.
-- `config/prototype.yaml` is currently empty; the frozen physical parameters it
-  is meant to hold have not landed yet.
+```bash
+python -m pip install -r requirements-ci.txt
+python -m pytest -q
+python scripts/final/verify_release.py
+```
+
+The contact feasibility invariant is enforced during routing/execution:
+
+```text
+departure_time + transmission_time <= contact.end_s
+```
+
+## Optional retraining
+
+Retraining is not required to run the final project. If you intentionally change the physical/stochastic experiment and need a new policy:
+
+```bash
+python -m pip install -r requirements-training.txt
+python train_physical_ppo_stochastic.py --timesteps 2000000 --n-envs 4 \
+  --bundles-per-episode 32 --seed 42 \
+  --out RL/rl_env_v0/models/physical_multisource_stochastic_ppo.zip
+```
+
+Changing the physical config changes its hash; the final demo will refuse to present a checkpoint whose metadata does not match the locked config.
+
+## Scientific scope
+
+Orbital geometry, contact windows, traffic and stochastic failures are **simulation outputs/assumptions**, not measurements of an operational satellite network. The three operational ground receivers are distinct from any Earth-surface coverage sampling used by earlier constellation experiments.

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Convenience launcher for the Streamlit frontend."""
+"""Launch the final Streamlit demo from any working directory."""
 
 from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+APP = ROOT / "src" / "frontend" / "app.py"
 
 
 def main() -> int:
@@ -12,17 +16,12 @@ def main() -> int:
         import streamlit  # noqa: F401
     except ImportError:
         print(
-            "Streamlit is not installed. From the repository root run:\n"
-            "  python -m pip install -r requirements-frontend.txt\n\n"
-            "For true RL checkpoint execution also run:\n"
-            "  python -m pip install -r requirements-frontend-rl.txt",
+            "Streamlit / PPO runtime dependencies are not installed. Run:\n"
+            "  python -m pip install -r requirements.txt",
             file=sys.stderr,
         )
         return 2
-
-    return subprocess.call(
-        [sys.executable, "-m", "streamlit", "run", "src/frontend/app.py"]
-    )
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(APP)], cwd=str(ROOT))
 
 
 if __name__ == "__main__":
