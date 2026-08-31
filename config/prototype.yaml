@@ -131,5 +131,18 @@
     "urgent_fraction": 0.3,
     "min_size_mb": 10.0,
     "max_size_mb": 120.0
+  },
+  "stochastic_transfer": {
+    "enabled": true,
+    "base_failure_probability": 0.01,
+    "weather_weight": 0.5,
+    "health_weight": 0.3,
+    "reliability_weight": 0.2,
+    "max_failure_probability": 0.9,
+    "min_failure_progress": 0.25,
+    "max_failure_progress": 0.95,
+    "risk_shaping_weight": 2.0,
+    "failure_penalty_base": 8.0,
+    "failure_penalty_priority": 12.0
   }
 }
