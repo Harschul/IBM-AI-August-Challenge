@@ -1,6 +1,4 @@
-# Constellation Routing Simulator
-
-### AI-assisted scientific data delivery for future space relay networks
+# AI Routing & Validation Platform for Space Networks
 
 **IBM AI Builders Challenge — August: Advance Space Exploration with AI**
 
