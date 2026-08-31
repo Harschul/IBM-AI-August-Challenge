@@ -1,0 +1,58 @@
+{
+  "model": "RL/rl_env_v0/models/physical_multisource_stochastic_ppo.zip",
+  "training_timesteps": 2000000,
+  "training_seed": 42,
+  "n_envs": 4,
+  "bundles_per_episode": 32,
+  "max_attempts": 24,
+  "config_path": "config/prototype.yaml",
+  "config_sha256": "cf9f11e8ac81dc066fad151d751b9207201c6e5354dbd21a26440da192ce3004",
+  "git_commit": "d27ac583374a7fc93a74ded92e4de94a1dd1c519",
+  "science_ids": [
+    0,
+    1,
+    2
+  ],
+  "leo_ids": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "geo_ids": [
+    9,
+    10
+  ],
+  "ground_ids": [
+    11,
+    12,
+    13
+  ],
+  "num_nodes": 14,
+  "observation_length": 158,
+  "horizon_s": 1800.0,
+  "sample_step_s": 5.0,
+  "algorithm": "MaskablePPO",
+  "policy": "MlpPolicy [256,256] actor/value",
+  "stochastic_transfer": {
+    "enabled": true,
+    "base_failure_probability": 0.01,
+    "weather_weight": 0.5,
+    "health_weight": 0.3,
+    "reliability_weight": 0.2,
+    "max_failure_probability": 0.9,
+    "min_failure_progress": 0.25,
+    "max_failure_progress": 0.95,
+    "risk_shaping_weight": 2.0,
+    "failure_penalty_base": 8.0,
+    "failure_penalty_priority": 12.0
+  },
+  "stochastic_failure_semantics": {
+    "failed_bundle_delivery": "atomic; bundle remains fully at sender",
+    "failed_capacity": "partial capacity consumed up to sampled failure point",
+    "failed_time": "time advances to sampled failure detection point",
+    "next_decision": "retry or reroute from same holder"
+  }
+}
