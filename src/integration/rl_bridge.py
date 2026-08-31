@@ -127,6 +127,54 @@ def build_observation(
     return observation, mask
 
 
+def _numpy2_compat() -> None:
+    """Let NumPy 1.x load checkpoints pickled under NumPy 2.x.
+
+    The saved models reference `numpy._core.*`, NumPy 2's internal module
+    layout; NumPy 1.26 calls the same modules `numpy.core.*`. Without this,
+    loading dies with `ModuleNotFoundError: No module named
+    'numpy._core.numeric'` on any machine that resolved an older NumPy --
+    which run_integrated_demo.py currently does, so the baseline prints and
+    then the RL half crashes.
+
+    The same workaround already exists in RL/rl_env_v0/src/rl/eval_with_baseline.py
+    and eval_all.py; this is the third copy because src/integration/
+    deliberately does not import from RL/rl_env_v0 (two packages named `src`).
+    """
+    import sys
+
+    import numpy.core  # noqa: F401
+
+    for suffix in ("", ".numeric", ".multiarray", ".umath", ".numerictypes",
+                   ".overrides", "._multiarray_umath"):
+        target = "numpy._core" + suffix
+        if target in sys.modules:
+            continue
+        try:
+            sys.modules[target] = __import__("numpy.core" + suffix, fromlist=["_"])
+        except Exception:
+            pass
+
+
+def _space_overrides() -> dict:
+    """Supply the spaces rather than unpickling them.
+
+    A pickled gymnasium Space carries a numpy Generator, which does not survive
+    the NumPy 2 -> 1.x boundary even with the module aliases above. The
+    interface is frozen anyway (158 observations, 14 actions), so handing them
+    to sb3 directly is both safe and faster than round-tripping them.
+    """
+    from gymnasium import spaces
+
+    return {
+        "observation_space": spaces.Box(
+            low=-1.0, high=1.0, shape=(OBS_LEN,), dtype=np.float32),
+        "action_space": spaces.Discrete(NUM_NODES),
+        "lr_schedule": lambda _: 0.0,
+        "clip_range": lambda _: 0.0,
+    }
+
+
 class MaskablePPOPolicy:
     """Thin lazy loader for the existing trained MaskablePPO checkpoints."""
 
@@ -141,7 +189,13 @@ class MaskablePPOPolicy:
                 "RL policy requested but sb3-contrib is not installed. "
                 "Install requirements-integration.txt."
             ) from exc
-        self._model = MaskablePPO.load(str(self.model_path))
+
+        _numpy2_compat()
+        self._model = MaskablePPO.load(
+            str(self.model_path),
+            device="cpu",
+            custom_objects=_space_overrides(),
+        )
 
     def choose(self, observation: np.ndarray, mask: np.ndarray) -> int:
         if not mask.any():
